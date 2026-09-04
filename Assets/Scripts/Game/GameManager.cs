@@ -1,18 +1,17 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class GameManager : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
+    private Deck deck;
 
-    // Update is called once per frame
-    void Update()
+    private void Start()
     {
-        
+        deck = new Deck();
+        Debug.Log($"Deck created with {deck.Count} cards.");
+        deck.Shuffle();
+        Card card = deck.Draw();
+
+        Debug.Log($"Drew card: {card.Rank} of {card.Suit}");
+        Debug.Log($"Cards remaining: {deck.Count}");
     }
 }
