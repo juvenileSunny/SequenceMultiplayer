@@ -5,7 +5,7 @@ using UnityEngine.UI;
 public class BoardCellView : MonoBehaviour
 {
     [Header("UI")]
-    [SerializeField] private Image backgroundImage;
+    [SerializeField] private Image cardImage;
     [SerializeField] private TMP_Text cardText;
     [SerializeField] private TMP_Text coordinateText;
 
@@ -16,7 +16,6 @@ public class BoardCellView : MonoBehaviour
     public void Initialize(BoardCell cell)
     {
         boardCell = cell;
-
         UpdateVisual();
     }
 
@@ -25,73 +24,73 @@ public class BoardCellView : MonoBehaviour
         if (boardCell == null)
             return;
 
-        coordinateText.text =
-            $"{boardCell.Row},{boardCell.Column}";
+        if (coordinateText != null)
+        {
+            coordinateText.text = $"{boardCell.Row},{boardCell.Column}";
+        }
 
+        // CORNER CELL
         if (boardCell.IsCorner)
         {
-            cardText.text = "Sequence";
+            Sprite cornerSprite =
+                Resources.Load<Sprite>("Cards/SEQUENCE");
+
+            if (cornerSprite != null && cardImage != null)
+            {
+                cardImage.gameObject.SetActive(true);
+                cardImage.sprite = cornerSprite;
+                cardImage.preserveAspect = true;
+            }
+            else
+            {
+                if (cardImage != null)
+                    cardImage.gameObject.SetActive(false);
+
+                if (cardText != null)
+                {
+                    cardText.gameObject.SetActive(true);
+                    cardText.text = "Sequence";
+                }
+            }
+
+            if (cardText != null && cornerSprite != null)
+            {
+                cardText.gameObject.SetActive(false);
+            }
+
             return;
         }
 
-        if (boardCell.Card != null)
+        // NORMAL CARD CELL
+        if (cardText != null)
         {
-            cardText.text = GetShortCardName(boardCell.Card);
+            cardText.gameObject.SetActive(false);
         }
-        else
+
+        if (cardImage == null || boardCell.Card == null)
+            return;
+
+        string cardCode = boardCell.Card.GetCode();
+
+        Sprite cardSprite =
+            Resources.Load<Sprite>($"Cards/{cardCode}");
+
+        if (cardSprite == null)
         {
-            // Temporary placeholder
-            cardText.text = "-";
+            Debug.LogWarning($"Could not find card image: Cards/{cardCode}");
+
+            if (cardText != null)
+            {
+                cardText.gameObject.SetActive(true);
+                cardText.text = cardCode;
+            }
+
+            cardImage.gameObject.SetActive(false);
+            return;
         }
-    }
 
-    private string GetShortCardName(Card card)
-    {
-        return $"{GetRankString(card.Rank)}{GetSuitSymbol(card.Suit)}";
-    }
-
-    private string GetRankString(Rank rank)
-    {
-        switch (rank)
-        {
-            case Rank.Ace:
-                return "A";
-
-            case Rank.King:
-                return "K";
-
-            case Rank.Queen:
-                return "Q";
-
-            case Rank.Jack:
-                return "J";
-
-            case Rank.Ten:
-                return "10";
-
-            default:
-                return ((int)rank).ToString();
-        }
-    }
-
-    private string GetSuitSymbol(Suit suit)
-    {
-        switch (suit)
-        {
-            case Suit.Hearts:
-                return "♥";
-
-            case Suit.Diamonds:
-                return "♦";
-
-            case Suit.Clubs:
-                return "♣";
-
-            case Suit.Spades:
-                return "♠";
-
-            default:
-                return "";
-        }
+        cardImage.gameObject.SetActive(true);
+        cardImage.sprite = cardSprite;
+        cardImage.preserveAspect = true;
     }
 }
