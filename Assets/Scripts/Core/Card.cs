@@ -1,11 +1,10 @@
 using System;
 
-
 public enum Suit
 {
-    Hearts,
-    Diamonds,
     Clubs,
+    Diamonds,
+    Hearts,
     Spades
 }
 
@@ -26,7 +25,6 @@ public enum Rank
     Ace
 }
 
-
 [Serializable]
 public class Card
 {
@@ -38,20 +36,24 @@ public class Card
         Suit = suit;
         Rank = rank;
     }
-    
-    public bool isJack()
+
+    public bool IsJack()
     {
         return Rank == Rank.Jack;
     }
 
     public bool IsOneEyedJack()
     {
-        return (Rank == Rank.Jack && (Suit == Suit.Hearts || Suit == Suit.Spades));
+        return Rank == Rank.Jack &&
+               (Suit == Suit.Hearts ||
+                Suit == Suit.Spades);
     }
 
     public bool IsTwoEyedJack()
     {
-        return (Rank == Rank.Jack && (Suit == Suit.Diamonds || Suit == Suit.Clubs));
+        return Rank == Rank.Jack &&
+               (Suit == Suit.Clubs ||
+                Suit == Suit.Diamonds);
     }
 
     public override string ToString()
