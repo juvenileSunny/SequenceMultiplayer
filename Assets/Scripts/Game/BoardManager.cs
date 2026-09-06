@@ -4,11 +4,16 @@ public class BoardManager : MonoBehaviour
 {
     [Header("Board UI")]
     [SerializeField] private Transform boardContainer;
+    [SerializeField] private BoardCellView boardCellPrefab;
 
-    [SerializeField]
-    private BoardCellView boardCellPrefab;
+    [Header("Features")]
+    [SerializeField] private bool showLegalMoveHighlights = true;
 
     private Board board;
+
+    // Stores the visual object corresponding to every board position.
+    private BoardCellView[,] cellViews =
+        new BoardCellView[Board.Rows, Board.Columns];
 
     // Temporary local multiplayer testing
     private int currentPlayerId = 1;
@@ -19,6 +24,10 @@ public class BoardManager : MonoBehaviour
     {
         CreateBoard();
     }
+
+    // =========================================================
+    // BOARD CREATION
+    // =========================================================
 
     private void CreateBoard()
     {
@@ -57,9 +66,17 @@ public class BoardManager : MonoBehaviour
                     cell,
                     OnCellClicked
                 );
+
+                // IMPORTANT:
+                // Store the visual so we can highlight it later.
+                cellViews[row, column] = cellView;
             }
         }
     }
+
+    // =========================================================
+    // CELL CLICK
+    // =========================================================
 
     private void OnCellClicked(
         BoardCellView cellView)
@@ -91,6 +108,10 @@ public class BoardManager : MonoBehaviour
         PlaceChip(cellView);
     }
 
+    // =========================================================
+    // CHIP PLACEMENT
+    // =========================================================
+
     private void PlaceChip(
         BoardCellView cellView)
     {
@@ -107,8 +128,15 @@ public class BoardManager : MonoBehaviour
 
         cellView.UpdateVisual();
 
+        // Remove any legal-move highlights after placing.
+        ClearHighlights();
+
         SwitchPlayer();
     }
+
+    // =========================================================
+    // PLAYER TURN
+    // =========================================================
 
     private void SwitchPlayer()
     {
@@ -123,9 +151,111 @@ public class BoardManager : MonoBehaviour
             $"Player {currentPlayerId}'s turn."
         );
     }
-    
+
+    // =========================================================
+    // LEGAL MOVE HIGHLIGHTING
+    // =========================================================
+
+    public void HighlightMatchingCard(
+        Card selectedCard)
+    {
+        // Remove old highlights first.
+        ClearHighlights();
+
+        if (!showLegalMoveHighlights)
+            return;
+
+        if (selectedCard == null)
+            return;
+
+        // Jack behavior will be implemented later.
+        if (selectedCard.IsJack())
+        {
+            Debug.Log(
+                $"Jack selected: {selectedCard.GetCode()}. " +
+                "Special Jack highlighting will be added later."
+            );
+
+            return;
+        }
+
+        for (int row = 0; row < Board.Rows; row++)
+        {
+            for (int column = 0;
+                 column < Board.Columns;
+                 column++)
+            {
+                BoardCell cell =
+                    board.GetCell(row, column);
+
+                if (cell == null)
+                    continue;
+
+                // Sequence corners aren't playable.
+                if (cell.IsCorner)
+                    continue;
+
+                // Already-owned positions are not legal.
+                if (cell.IsOccupied)
+                    continue;
+
+                if (cell.Card == null)
+                    continue;
+
+                // Does this board card match the selected hand card?
+                bool matches =
+                    cell.Card.Rank == selectedCard.Rank &&
+                    cell.Card.Suit == selectedCard.Suit;
+
+                if (matches)
+                {
+                    BoardCellView view =
+                        cellViews[row, column];
+
+                    if (view != null)
+                    {
+                        view.SetHighlighted(true);
+                    }
+                }
+            }
+        }
+    }
+
+    public void ClearHighlights()
+    {
+        for (int row = 0; row < Board.Rows; row++)
+        {
+            for (int column = 0;
+                 column < Board.Columns;
+                 column++)
+            {
+                BoardCellView view =
+                    cellViews[row, column];
+
+                if (view != null)
+                {
+                    view.SetHighlighted(false);
+                }
+            }
+        }
+    }
+
+    // =========================================================
+    // CLEANUP
+    // =========================================================
+
     private void ClearExistingBoard()
     {
+        for (int row = 0; row < Board.Rows; row++)
+        {
+            for (int column = 0;
+                 column < Board.Columns;
+                 column++)
+            {
+                cellViews[row, column] = null;
+            }
+        }
+
         foreach (Transform child in boardContainer)
         {
             Destroy(child.gameObject);

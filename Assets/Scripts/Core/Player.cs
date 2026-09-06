@@ -1,18 +1,23 @@
-using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 
-public class Player : MonoBehaviour
+public class Player
 {
-    // Start is called before the first frame update
-    void Start()
+    public int PlayerId;
+    public List<Card> Hand = new List<Card>();
+
+    public Player(int playerId)
     {
-        
+        PlayerId = playerId;
     }
 
-    // Update is called once per frame
-    void Update()
+    public void AddCard(Card card)
     {
-        
+        if (card != null)
+            Hand.Add(card);
+    }
+
+    public void RemoveCard(Card card)
+    {
+        Hand.Remove(card);
     }
 }

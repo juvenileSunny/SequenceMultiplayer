@@ -145,6 +145,7 @@ GameObject:
   - component: {fileID: 200633977686331465}
   - component: {fileID: 5479152459757292290}
   - component: {fileID: 2799717598455892120}
+  - component: {fileID: 5033987629804944147}
   m_Layer: 5
   m_Name: CardImage
   m_TagString: Untagged
@@ -209,6 +210,21 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &5033987629804944147
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1796861109617257409}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.87058824, g: 0.71959275, b: 0.023529397, a: 1}
+  m_EffectDistance: {x: 3, y: -3}
+  m_UseGraphicAlpha: 1
 --- !u!1 &3732664383772847026
 GameObject:
   m_ObjectHideFlags: 0
@@ -398,6 +414,7 @@ MonoBehaviour:
   cardText: {fileID: 6113808621022341994}
   coordinateText: {fileID: 2438439682961510343}
   button: {fileID: 1178347394112740829}
+  legalMoveOutline: {fileID: 5033987629804944147}
 --- !u!114 &1178347394112740829
 MonoBehaviour:
   m_ObjectHideFlags: 0

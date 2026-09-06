@@ -122,6 +122,53 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &356276431
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 356276433}
+  - component: {fileID: 356276432}
+  m_Layer: 0
+  m_Name: Handmanager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &356276432
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 356276431}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 43b9479a797c961458bf4ed479c2900e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  handContainer: {fileID: 1374438955}
+  handCardPrefab: {fileID: 5790410239239526274, guid: da1fc9f41337ada42866005543e4493a, type: 3}
+  showCardSelectionVisual: 1
+--- !u!4 &356276433
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 356276431}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 21.8678, y: 326.72253, z: 2.876368}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &510396343
 GameObject:
   m_ObjectHideFlags: 0
@@ -153,6 +200,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   boardContainer: {fileID: 3907548174479444166}
   boardCellPrefab: {fileID: 3122419166459050309, guid: 469c1c57878ced14db332639326ca01b, type: 3}
+  showLegalMoveHighlights: 1
 --- !u!4 &510396345
 Transform:
   m_ObjectHideFlags: 0
@@ -383,6 +431,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e838dea61f94e164fa0e1dce3eece794, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  playerCount: 6
+  handManager: {fileID: 356276432}
+  boardManager: {fileID: 510396344}
 --- !u!4 &1320369257
 Transform:
   m_ObjectHideFlags: 0
@@ -431,10 +482,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 4169316546522246002}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: -324}
-  m_SizeDelta: {x: -1835.076, y: -761.787}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: -340}
+  m_SizeDelta: {x: 650, y: 140}
   m_Pivot: {x: 0.5, y: 0.49999988}
 --- !u!114 &1374438956
 MonoBehaviour:
@@ -453,10 +504,10 @@ MonoBehaviour:
     m_Right: 0
     m_Top: 0
     m_Bottom: 0
-  m_ChildAlignment: 2
-  m_Spacing: 0
-  m_ChildForceExpandWidth: 1
-  m_ChildForceExpandHeight: 1
+  m_ChildAlignment: 4
+  m_Spacing: 10
+  m_ChildForceExpandWidth: 0
+  m_ChildForceExpandHeight: 0
   m_ChildControlWidth: 0
   m_ChildControlHeight: 0
   m_ChildScaleWidth: 0
@@ -741,3 +792,4 @@ SceneRoots:
   - {fileID: 4169316546522246002}
   - {fileID: 1432351798}
   - {fileID: 510396345}
+  - {fileID: 356276433}

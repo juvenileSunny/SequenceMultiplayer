@@ -13,6 +13,7 @@ public class BoardCellView : MonoBehaviour
     [SerializeField] private TMP_Text coordinateText;
 
     [SerializeField] private Button button;
+    [SerializeField] private Outline legalMoveOutline;
 
     private BoardCell boardCell;
 
@@ -35,6 +36,7 @@ public class BoardCellView : MonoBehaviour
         }
 
         UpdateVisual();
+        SetHighlighted(false);
     }
 
     public void UpdateVisual()
@@ -45,6 +47,14 @@ public class BoardCellView : MonoBehaviour
         UpdateCardVisual();
         UpdateChipVisual();
         UpdateButtonState();
+    }
+
+    public void SetHighlighted(bool highlighted)
+    {
+        if (legalMoveOutline != null)
+        {
+            legalMoveOutline.enabled = highlighted;
+        }
     }
 
     private void UpdateCardVisual()
