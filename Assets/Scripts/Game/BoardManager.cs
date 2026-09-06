@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public class BoardManager : MonoBehaviour
@@ -11,14 +12,19 @@ public class BoardManager : MonoBehaviour
 
     private Board board;
 
-    // Stores the visual object corresponding to every board position.
     private BoardCellView[,] cellViews =
         new BoardCellView[Board.Rows, Board.Columns];
 
-    // Temporary local multiplayer testing
+    // Card currently selected from the player's hand
+    private Card selectedCard;
+
+    // GameManager tells BoardManager whose turn it is
     private int currentPlayerId = 1;
 
     public Board Board => board;
+
+    // Fired after a valid card has been played.
+    public event Action<Card> OnMoveCompleted;
 
     private void Start()
     {
@@ -35,9 +41,7 @@ public class BoardManager : MonoBehaviour
 
         GenerateBoardVisuals();
 
-        Debug.Log(
-            $"Board created. Player {currentPlayerId}'s turn."
-        );
+        Debug.Log("Board created.");
     }
 
     private void GenerateBoardVisuals()
@@ -67,11 +71,22 @@ public class BoardManager : MonoBehaviour
                     OnCellClicked
                 );
 
-                // IMPORTANT:
-                // Store the visual so we can highlight it later.
                 cellViews[row, column] = cellView;
             }
         }
+    }
+
+    // =========================================================
+    // CURRENT PLAYER
+    // =========================================================
+
+    public void SetCurrentPlayer(int playerId)
+    {
+        currentPlayerId = playerId;
+
+        Debug.Log(
+            $"Board ready for Player {currentPlayerId}."
+        );
     }
 
     // =========================================================
@@ -81,12 +96,12 @@ public class BoardManager : MonoBehaviour
     private void OnCellClicked(
         BoardCellView cellView)
     {
-        BoardCell cell =
-            cellView.Cell;
+        BoardCell cell = cellView.Cell;
 
         if (cell == null)
             return;
 
+        // Corners cannot receive chips.
         if (cell.IsCorner)
         {
             Debug.Log(
@@ -96,10 +111,51 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
+        // Already occupied.
         if (cell.IsOccupied)
         {
             Debug.Log(
                 $"Cell [{cell.Row},{cell.Column}] is already occupied."
+            );
+
+            return;
+        }
+
+        // Player must select a hand card first.
+        if (selectedCard == null)
+        {
+            Debug.Log(
+                "Select a card from your hand first."
+            );
+
+            return;
+        }
+
+        // Jack rules come later.
+        if (selectedCard.IsJack())
+        {
+            Debug.Log(
+                "Jack rules have not been implemented yet."
+            );
+
+            return;
+        }
+
+        if (cell.Card == null)
+            return;
+
+        // The clicked board card must match
+        // the selected hand card.
+        bool matches =
+            cell.Card.Rank == selectedCard.Rank &&
+            cell.Card.Suit == selectedCard.Suit;
+
+        if (!matches)
+        {
+            Debug.Log(
+                $"Invalid move. Selected card is " +
+                $"{selectedCard.GetCode()}, but clicked " +
+                $"{cell.Card.GetCode()}."
             );
 
             return;
@@ -115,41 +171,28 @@ public class BoardManager : MonoBehaviour
     private void PlaceChip(
         BoardCellView cellView)
     {
-        BoardCell cell =
-            cellView.Cell;
+        BoardCell cell = cellView.Cell;
+
+        Card playedCard = selectedCard;
 
         cell.SetOwner(currentPlayerId);
 
-        Debug.Log(
-            $"Player {currentPlayerId} placed chip on " +
-            $"{cell.Card.GetCode()} " +
-            $"at [{cell.Row},{cell.Column}]"
-        );
-
         cellView.UpdateVisual();
 
-        // Remove any legal-move highlights after placing.
-        ClearHighlights();
-
-        SwitchPlayer();
-    }
-
-    // =========================================================
-    // PLAYER TURN
-    // =========================================================
-
-    private void SwitchPlayer()
-    {
-        currentPlayerId++;
-
-        if (currentPlayerId > 3)
-        {
-            currentPlayerId = 1;
-        }
-
         Debug.Log(
-            $"Player {currentPlayerId}'s turn."
+            $"Player {currentPlayerId} played " +
+            $"{playedCard.GetCode()} at " +
+            $"[{cell.Row},{cell.Column}]."
         );
+
+        // Clear the card selection on the board.
+        selectedCard = null;
+
+        ClearHighlightVisuals();
+
+        // GameManager will remove the card,
+        // draw another one, and change turns.
+        OnMoveCompleted?.Invoke(playedCard);
     }
 
     // =========================================================
@@ -157,23 +200,24 @@ public class BoardManager : MonoBehaviour
     // =========================================================
 
     public void HighlightMatchingCard(
-        Card selectedCard)
+        Card card)
     {
-        // Remove old highlights first.
-        ClearHighlights();
+        ClearHighlightVisuals();
+
+        selectedCard = card;
 
         if (!showLegalMoveHighlights)
             return;
 
-        if (selectedCard == null)
+        if (card == null)
             return;
 
-        // Jack behavior will be implemented later.
-        if (selectedCard.IsJack())
+        // Jack rules will come later.
+        if (card.IsJack())
         {
             Debug.Log(
-                $"Jack selected: {selectedCard.GetCode()}. " +
-                "Special Jack highlighting will be added later."
+                $"Jack selected: {card.GetCode()}. " +
+                "Jack move logic will be added later."
             );
 
             return;
@@ -191,21 +235,18 @@ public class BoardManager : MonoBehaviour
                 if (cell == null)
                     continue;
 
-                // Sequence corners aren't playable.
                 if (cell.IsCorner)
                     continue;
 
-                // Already-owned positions are not legal.
                 if (cell.IsOccupied)
                     continue;
 
                 if (cell.Card == null)
                     continue;
 
-                // Does this board card match the selected hand card?
                 bool matches =
-                    cell.Card.Rank == selectedCard.Rank &&
-                    cell.Card.Suit == selectedCard.Suit;
+                    cell.Card.Rank == card.Rank &&
+                    cell.Card.Suit == card.Suit;
 
                 if (matches)
                 {
@@ -222,6 +263,13 @@ public class BoardManager : MonoBehaviour
     }
 
     public void ClearHighlights()
+    {
+        selectedCard = null;
+
+        ClearHighlightVisuals();
+    }
+
+    private void ClearHighlightVisuals()
     {
         for (int row = 0; row < Board.Rows; row++)
         {
@@ -260,5 +308,57 @@ public class BoardManager : MonoBehaviour
         {
             Destroy(child.gameObject);
         }
+    }
+
+
+    // =========================================================
+    // DEAD CARD CHECK
+    // =========================================================
+
+    public bool IsDeadCard(Card card)
+    {
+        if (card == null)
+            return false;
+
+        // Jacks are special cards, not dead cards.
+        if (card.IsJack())
+            return false;
+
+        bool foundMatchingCard = false;
+
+        for (int row = 0; row < Board.Rows; row++)
+        {
+            for (int column = 0;
+                column < Board.Columns;
+                column++)
+            {
+                BoardCell cell =
+                    board.GetCell(row, column);
+
+                if (cell == null ||
+                    cell.IsCorner ||
+                    cell.Card == null)
+                {
+                    continue;
+                }
+
+                bool matches =
+                    cell.Card.Rank == card.Rank &&
+                    cell.Card.Suit == card.Suit;
+
+                if (!matches)
+                    continue;
+
+                foundMatchingCard = true;
+
+                // At least one playable copy still exists.
+                if (!cell.IsOccupied)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return foundMatchingCard;
     }
 }

@@ -16,12 +16,48 @@ public class GameManager : MonoBehaviour
     private readonly List<Player> players =
         new List<Player>();
 
+    private int currentPlayerId = 1;
+
     public IReadOnlyList<Player> Players => players;
+
+    private void OnEnable()
+    {
+        if (handManager != null)
+        {
+            handManager.OnSelectedCardChanged +=
+                HandleSelectedCardChanged;
+        }
+
+        if (boardManager != null)
+        {
+            boardManager.OnMoveCompleted +=
+                HandleMoveCompleted;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (handManager != null)
+        {
+            handManager.OnSelectedCardChanged -=
+                HandleSelectedCardChanged;
+        }
+
+        if (boardManager != null)
+        {
+            boardManager.OnMoveCompleted -=
+                HandleMoveCompleted;
+        }
+    }
 
     private void Start()
     {
         InitializeGame();
     }
+
+    // =========================================================
+    // GAME INITIALIZATION
+    // =========================================================
 
     private void InitializeGame()
     {
@@ -35,21 +71,27 @@ public class GameManager : MonoBehaviour
         }
 
         CreatePlayers();
-
         CreateDeck();
-
         DealCards();
 
-        ShowPlayerHand(1);
+        currentPlayerId = 1;
+
+        boardManager.SetCurrentPlayer(
+            currentPlayerId
+        );
+
+        ShowPlayerHand(
+            currentPlayerId
+        );
 
         Debug.Log(
             $"Game initialized with {playerCount} players."
         );
     }
 
-    // --------------------------------------------------
+    // =========================================================
     // PLAYERS
-    // --------------------------------------------------
+    // =========================================================
 
     private void CreatePlayers()
     {
@@ -57,9 +99,9 @@ public class GameManager : MonoBehaviour
 
         for (int i = 1; i <= playerCount; i++)
         {
-            Player player = new Player(i);
-
-            players.Add(player);
+            players.Add(
+                new Player(i)
+            );
         }
 
         Debug.Log(
@@ -67,9 +109,20 @@ public class GameManager : MonoBehaviour
         );
     }
 
-    // --------------------------------------------------
+    public Player GetPlayer(int playerId)
+    {
+        foreach (Player player in players)
+        {
+            if (player.PlayerId == playerId)
+                return player;
+        }
+
+        return null;
+    }
+
+    // =========================================================
     // DECK
-    // --------------------------------------------------
+    // =========================================================
 
     private void CreateDeck()
     {
@@ -78,21 +131,23 @@ public class GameManager : MonoBehaviour
         deck.Shuffle();
 
         Debug.Log(
-            $"Deck shuffled. Cards: {deck.Count}"
+            $"Deck shuffled. Cards remaining: {deck.Count}"
         );
     }
 
-    // --------------------------------------------------
+    // =========================================================
     // DEALING
-    // --------------------------------------------------
+    // =========================================================
 
     private void DealCards()
     {
         int cardsPerPlayer =
             GetCardsPerPlayer(playerCount);
 
-        // Deal round-by-round
-        for (int round = 0; round < cardsPerPlayer; round++)
+        // Deal one card to each player per round.
+        for (int round = 0;
+             round < cardsPerPlayer;
+             round++)
         {
             foreach (Player player in players)
             {
@@ -115,35 +170,9 @@ public class GameManager : MonoBehaviour
         );
     }
 
-    // --------------------------------------------------
+    // =========================================================
     // HAND UI
-    // --------------------------------------------------
-    private void OnEnable()
-    {
-        if (handManager != null)
-        {
-            handManager.OnSelectedCardChanged +=
-                HandleSelectedCardChanged;
-        }
-    }
-    private void OnDisable()
-    {
-        if (handManager != null)
-        {
-            handManager.OnSelectedCardChanged -=
-                HandleSelectedCardChanged;
-        }
-    }
-    private void HandleSelectedCardChanged(Card card)
-    {
-        if (card == null)
-        {
-            boardManager.ClearHighlights();
-            return;
-        }
-
-        boardManager.HighlightMatchingCard(card);
-    }
+    // =========================================================
 
     public void ShowPlayerHand(int playerId)
     {
@@ -151,13 +180,7 @@ public class GameManager : MonoBehaviour
             GetPlayer(playerId);
 
         if (player == null)
-        {
-            Debug.LogError(
-                $"Player {playerId} does not exist."
-            );
-
             return;
-        }
 
         handManager.Initialize(player);
 
@@ -166,22 +189,105 @@ public class GameManager : MonoBehaviour
         );
     }
 
-    public Player GetPlayer(int playerId)
+    // =========================================================
+    // HAND SELECTION
+    // =========================================================
+
+    private void HandleSelectedCardChanged(
+        Card card)
     {
-        foreach (Player player in players)
+        if (card == null)
         {
-            if (player.PlayerId == playerId)
-            {
-                return player;
-            }
+            boardManager.ClearHighlights();
+            return;
         }
 
-        return null;
+        boardManager.HighlightMatchingCard(card);
+
+        Debug.Log(
+            $"Showing legal positions for {card.GetCode()}."
+        );
     }
 
-    // --------------------------------------------------
-    // HAND SIZE RULES
-    // --------------------------------------------------
+    // =========================================================
+    // SUCCESSFUL MOVE
+    // =========================================================
+
+    private void HandleMoveCompleted(
+        Card playedCard)
+    {
+        Player currentPlayer =
+            GetPlayer(currentPlayerId);
+
+        if (currentPlayer == null)
+            return;
+
+        // Remove played card from hand.
+        currentPlayer.RemoveCard(
+            playedCard
+        );
+
+        Debug.Log(
+            $"Removed {playedCard.GetCode()} " +
+            $"from Player {currentPlayerId}'s hand."
+        );
+
+        // Draw replacement card.
+        Card replacementCard =
+            deck.Draw();
+
+        if (replacementCard != null)
+        {
+            currentPlayer.AddCard(
+                replacementCard
+            );
+
+            Debug.Log(
+                $"Player {currentPlayerId} drew " +
+                $"{replacementCard.GetCode()}."
+            );
+        }
+        else
+        {
+            Debug.Log(
+                "Deck is empty. No replacement card drawn."
+            );
+        }
+
+        AdvanceTurn();
+    }
+
+    // =========================================================
+    // TURN MANAGEMENT
+    // =========================================================
+
+    private void AdvanceTurn()
+    {
+        currentPlayerId++;
+
+        if (currentPlayerId > players.Count)
+        {
+            currentPlayerId = 1;
+        }
+
+        boardManager.ClearHighlights();
+
+        boardManager.SetCurrentPlayer(
+            currentPlayerId
+        );
+
+        ShowPlayerHand(
+            currentPlayerId
+        );
+
+        Debug.Log(
+            $"Player {currentPlayerId}'s turn."
+        );
+    }
+
+    // =========================================================
+    // HAND SIZE
+    // =========================================================
 
     private int GetCardsPerPlayer(int count)
     {
