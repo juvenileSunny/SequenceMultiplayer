@@ -19,16 +19,20 @@ public class BoardManager : MonoBehaviour
     // Card currently selected from the player's hand.
     private Card selectedCard;
 
-    // GameManager controls whose turn it is.
+    // Current turn information.
     private int currentPlayerId = 1;
+    private int currentTeamId = 1;
+
+    private bool boardLocked = false;
 
     public Board Board => board;
 
-    // Fired after ANY successful play:
+    // Fired after any successful play:
     // normal card, two-eyed Jack, or one-eyed Jack.
     public event Action<Card, BoardCell> OnMoveCompleted;
-    private bool boardLocked = false;
 
+    // Key = TeamId
+    // Value = completed Sequences belonging to that team.
     private readonly Dictionary<
         int,
         List<List<BoardCell>>
@@ -46,13 +50,6 @@ public class BoardManager : MonoBehaviour
     {
         CreateBoard();
     }
-    // private void Update()
-    // {
-    //     if (Input.GetKeyDown(KeyCode.F1))
-    //     {
-    //         TestSequenceVisual();
-    //     }
-    // }
 
     // =========================================================
     // BOARD CREATION
@@ -101,17 +98,19 @@ public class BoardManager : MonoBehaviour
     }
 
     // =========================================================
-    // CURRENT PLAYER
+    // CURRENT PLAYER / TEAM
     // =========================================================
 
-    public void SetCurrentPlayer(int playerId)
+    public void SetCurrentPlayer(
+        int playerId,
+        int teamId)
     {
         currentPlayerId = playerId;
-
-        ClearHighlights();
+        currentTeamId = teamId;
 
         Debug.Log(
-            $"Board ready for Player {currentPlayerId}."
+            $"Board ready for Player {currentPlayerId} " +
+            $"(Team {currentTeamId})."
         );
     }
 
@@ -130,6 +129,7 @@ public class BoardManager : MonoBehaviour
 
             return;
         }
+
         if (cellView == null)
             return;
 
@@ -139,7 +139,6 @@ public class BoardManager : MonoBehaviour
         if (cell == null)
             return;
 
-        // Player must select a card first.
         if (selectedCard == null)
         {
             Debug.Log(
@@ -149,8 +148,7 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // Corners are free Sequence spaces.
-        // Players never place/remove chips there.
+        // Corners are wild/free Sequence spaces.
         if (cell.IsCorner)
         {
             Debug.Log(
@@ -160,12 +158,8 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =====================================================
-        // TWO-EYED JACK
+        // Two-eyed Jack
         // JC / JD
-        // Place a chip on ANY empty space.
-        // =====================================================
-
         if (selectedCard.IsTwoEyedJack())
         {
             HandleTwoEyedJack(
@@ -175,12 +169,8 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =====================================================
-        // ONE-EYED JACK
+        // One-eyed Jack
         // JH / JS
-        // Remove an opponent chip.
-        // =====================================================
-
         if (selectedCard.IsOneEyedJack())
         {
             HandleOneEyedJack(
@@ -190,16 +180,18 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =====================================================
-        // NORMAL CARD
-        // =====================================================
-
+        // Normal card
         HandleNormalCard(
             cellView
         );
     }
 
-    public void SetBoardLocked(bool locked)
+    // =========================================================
+    // BOARD LOCK
+    // =========================================================
+
+    public void SetBoardLocked(
+        bool locked)
     {
         boardLocked = locked;
 
@@ -218,6 +210,9 @@ public class BoardManager : MonoBehaviour
     {
         BoardCell cell =
             cellView.Cell;
+
+        if (cell == null)
+            return;
 
         if (cell.IsOccupied)
         {
@@ -254,6 +249,7 @@ public class BoardManager : MonoBehaviour
 
     // =========================================================
     // TWO-EYED JACK
+    // JC / JD
     // =========================================================
 
     private void HandleTwoEyedJack(
@@ -261,6 +257,9 @@ public class BoardManager : MonoBehaviour
     {
         BoardCell cell =
             cellView.Cell;
+
+        if (cell == null)
+            return;
 
         if (cell.IsOccupied)
         {
@@ -283,6 +282,7 @@ public class BoardManager : MonoBehaviour
 
     // =========================================================
     // ONE-EYED JACK
+    // JH / JS
     // =========================================================
 
     private void HandleOneEyedJack(
@@ -297,22 +297,23 @@ public class BoardManager : MonoBehaviour
         if (!cell.IsOccupied)
         {
             Debug.Log(
-                "One-eyed Jack must target an opponent's chip."
+                "One-eyed Jack must target an opponent team's chip."
             );
 
             return;
         }
 
-        if (cell.OwnerId == currentPlayerId)
+        // Cannot remove a teammate's chip.
+        if (cell.OwnerTeamId == currentTeamId)
         {
             Debug.Log(
-                "You cannot remove your own chip."
+                "You cannot remove a chip belonging to your own team."
             );
 
             return;
         }
 
-        // Completed Sequence chips cannot be removed.
+        // Completed Sequence chips are protected.
         if (cell.IsPartOfCompletedSequence)
         {
             Debug.Log(
@@ -327,6 +328,7 @@ public class BoardManager : MonoBehaviour
             cellView
         );
     }
+
     // =========================================================
     // PLACE CHIP
     // =========================================================
@@ -337,23 +339,36 @@ public class BoardManager : MonoBehaviour
         BoardCell cell =
             cellView.Cell;
 
-        Card playedCard =
-            selectedCard;
+        if (cell == null)
+            return;
 
-        cell.SetOwner(
-            currentPlayerId
+        if (cell.IsOccupied)
+        {
+            Debug.Log(
+                $"Cell [{cell.Row},{cell.Column}] " +
+                "is already occupied."
+            );
+
+            return;
+        }
+
+        // IMPORTANT:
+        // Board spaces belong to TEAMS, not individual players.
+        cell.SetOwnerTeam(
+            currentTeamId
         );
 
         cellView.UpdateVisual();
 
         Debug.Log(
-            $"Player {currentPlayerId} played " +
-            $"{playedCard.GetCode()} at " +
+            $"Player {currentPlayerId} " +
+            $"(Team {currentTeamId}) played " +
+            $"{selectedCard.GetCode()} at " +
             $"[{cell.Row},{cell.Column}]."
         );
 
         FinishBoardMove(
-            playedCard,
+            selectedCard,
             cell
         );
     }
@@ -368,25 +383,29 @@ public class BoardManager : MonoBehaviour
         BoardCell cell =
             cellView.Cell;
 
+        if (cell == null)
+            return;
+
         Card playedJack =
             selectedCard;
 
-        int removedPlayerId =
-            cell.OwnerId;
+        int removedTeamId =
+            cell.OwnerTeamId;
 
-        // Remove ownership from board data.
         cell.ClearOwner();
 
-        // Refresh visual overlay.
         cellView.UpdateVisual();
 
         Debug.Log(
-            $"Player {currentPlayerId} used " +
+            $"Player {currentPlayerId} " +
+            $"(Team {currentTeamId}) used " +
             $"{playedJack.GetCode()} to remove " +
-            $"Player {removedPlayerId}'s chip from " +
+            $"Team {removedTeamId}'s chip from " +
             $"[{cell.Row},{cell.Column}]."
         );
 
+        // A removal does not create a new Sequence,
+        // so placedCell is null.
         FinishBoardMove(
             playedJack,
             null
@@ -425,15 +444,11 @@ public class BoardManager : MonoBehaviour
         if (card == null)
             return;
 
-        // Turning visuals off must NOT disable gameplay.
+        // Turning visuals off must not disable gameplay.
         if (!showLegalMoveHighlights)
             return;
 
-        // =====================================================
-        // TWO-EYED JACK
-        // Highlight every empty non-corner cell.
-        // =====================================================
-
+        // Two-eyed Jack
         if (card.IsTwoEyedJack())
         {
             HighlightTwoEyedJackTargets();
@@ -441,11 +456,7 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =====================================================
-        // ONE-EYED JACK
-        // Highlight opponent chips.
-        // =====================================================
-
+        // One-eyed Jack
         if (card.IsOneEyedJack())
         {
             HighlightOneEyedJackTargets();
@@ -453,10 +464,7 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =====================================================
-        // NORMAL CARD
-        // =====================================================
-
+        // Normal card
         for (int row = 0;
              row < Board.Rows;
              row++)
@@ -548,12 +556,12 @@ public class BoardManager : MonoBehaviour
     private void HighlightOneEyedJackTargets()
     {
         for (int row = 0;
-            row < Board.Rows;
-            row++)
+             row < Board.Rows;
+             row++)
         {
             for (int column = 0;
-                column < Board.Columns;
-                column++)
+                 column < Board.Columns;
+                 column++)
             {
                 BoardCell cell =
                     board.GetCell(
@@ -567,15 +575,13 @@ public class BoardManager : MonoBehaviour
                 if (cell.IsCorner)
                     continue;
 
-                // One-eyed Jack needs an occupied cell.
                 if (!cell.IsOccupied)
                     continue;
 
-                // Cannot remove your own chip.
-                if (cell.OwnerId == currentPlayerId)
+                // Cannot remove your own team's chip.
+                if (cell.OwnerTeamId == currentTeamId)
                     continue;
 
-                // NEW:
                 // Completed Sequence chips are protected.
                 if (cell.IsPartOfCompletedSequence)
                     continue;
@@ -589,9 +595,13 @@ public class BoardManager : MonoBehaviour
         }
 
         Debug.Log(
-            "One-eyed Jack: choose an opponent chip to remove."
+            "One-eyed Jack: choose an opponent team's chip to remove."
         );
     }
+
+    // =========================================================
+    // HIGHLIGHT HELPERS
+    // =========================================================
 
     private void SetCellHighlight(
         int row,
@@ -608,10 +618,6 @@ public class BoardManager : MonoBehaviour
             );
         }
     }
-
-    // =========================================================
-    // CLEAR SELECTION
-    // =========================================================
 
     public void ClearHighlights()
     {
@@ -653,8 +659,7 @@ public class BoardManager : MonoBehaviour
         if (card == null)
             return false;
 
-        // Jacks can always use their special ability,
-        // so they are never considered dead cards.
+        // Jacks are never dead cards.
         if (card.IsJack())
             return false;
 
@@ -706,14 +711,22 @@ public class BoardManager : MonoBehaviour
     }
 
     // =========================================================
-    // CLEANUP
+    // RESET
     // =========================================================
 
     public void ResetSequenceData()
     {
         completedSequences.Clear();
+
         boardLocked = false;
+
+        ClearHighlights();
     }
+
+    // =========================================================
+    // CLEANUP
+    // =========================================================
+
     private void ClearExistingBoard()
     {
         for (int row = 0;
@@ -737,13 +750,12 @@ public class BoardManager : MonoBehaviour
         }
     }
 
-
     // =========================================================
     // SEQUENCE DETECTION
     // =========================================================
 
     public int RegisterNewSequences(
-        int ownerId,
+        int teamId,
         BoardCell lastPlacedCell)
     {
         if (lastPlacedCell == null)
@@ -752,21 +764,23 @@ public class BoardManager : MonoBehaviour
         if (lastPlacedCell.IsCorner)
             return 0;
 
-        if (lastPlacedCell.OwnerId != ownerId)
+        // The newly placed chip must belong to the team
+        // we are checking.
+        if (lastPlacedCell.OwnerTeamId != teamId)
             return 0;
 
-        List<List<BoardCell>> ownerSequences;
+        List<List<BoardCell>> teamSequences;
 
         if (!completedSequences.TryGetValue(
-                ownerId,
-                out ownerSequences))
+                teamId,
+                out teamSequences))
         {
-            ownerSequences =
+            teamSequences =
                 new List<List<BoardCell>>();
 
             completedSequences.Add(
-                ownerId,
-                ownerSequences
+                teamId,
+                teamSequences
             );
         }
 
@@ -775,49 +789,48 @@ public class BoardManager : MonoBehaviour
         // Horizontal
         newSequenceCount +=
             FindAndRegisterSequencesInDirection(
-                ownerId,
+                teamId,
                 lastPlacedCell,
                 0,
                 1,
-                ownerSequences
+                teamSequences
             );
 
         // Vertical
         newSequenceCount +=
             FindAndRegisterSequencesInDirection(
-                ownerId,
+                teamId,
                 lastPlacedCell,
                 1,
                 0,
-                ownerSequences
+                teamSequences
             );
 
         // Diagonal \
         newSequenceCount +=
             FindAndRegisterSequencesInDirection(
-                ownerId,
+                teamId,
                 lastPlacedCell,
                 1,
                 1,
-                ownerSequences
+                teamSequences
             );
 
         // Diagonal /
         newSequenceCount +=
             FindAndRegisterSequencesInDirection(
-                ownerId,
+                teamId,
                 lastPlacedCell,
                 1,
                 -1,
-                ownerSequences
+                teamSequences
             );
 
         return newSequenceCount;
     }
 
-
     private int FindAndRegisterSequencesInDirection(
-        int ownerId,
+        int teamId,
         BoardCell lastPlacedCell,
         int rowDirection,
         int columnDirection,
@@ -826,12 +839,11 @@ public class BoardManager : MonoBehaviour
         List<List<BoardCell>> candidates =
             new List<List<BoardCell>>();
 
-        // Any 5-cell Sequence containing the newly
-        // placed chip can start between -4 and 0
-        // relative to that chip.
+        // Any 5-cell Sequence containing the newly placed
+        // chip can begin between -4 and 0 relative to it.
         for (int offset = -4;
-            offset <= 0;
-            offset++)
+             offset <= 0;
+             offset++)
         {
             int startRow =
                 lastPlacedCell.Row +
@@ -847,8 +859,8 @@ public class BoardManager : MonoBehaviour
             bool valid = true;
 
             for (int i = 0;
-                i < 5;
-                i++)
+                 i < 5;
+                 i++)
             {
                 int row =
                     startRow +
@@ -878,12 +890,12 @@ public class BoardManager : MonoBehaviour
                     break;
                 }
 
-                // Sequence corners belong to everyone.
-                bool belongsToOwner =
+                // Corners count for every team.
+                bool belongsToTeam =
                     cell.IsCorner ||
-                    cell.OwnerId == ownerId;
+                    cell.OwnerTeamId == teamId;
 
-                if (!belongsToOwner)
+                if (!belongsToTeam)
                 {
                     valid = false;
                     break;
@@ -900,8 +912,8 @@ public class BoardManager : MonoBehaviour
             if (candidate.Count != 5)
                 continue;
 
-            // Don't count a candidate that overlaps
-            // an existing Sequence by more than one cell.
+            // New Sequence may overlap an existing
+            // Sequence by at most one cell.
             if (!IsCompatibleWithExistingSequences(
                     candidate,
                     existingSequences))
@@ -918,13 +930,11 @@ public class BoardManager : MonoBehaviour
             return 0;
 
         /*
-        * Normally only one new Sequence appears in a
-        * particular direction.
-        *
-        * However, a move can connect two groups and
-        * create two legal Sequences sharing exactly
-        * one cell.
-        */
+         * Usually only one new Sequence exists in one direction.
+         *
+         * However, a newly placed chip can connect two groups
+         * and legally create two Sequences sharing one cell.
+         */
 
         List<List<BoardCell>> accepted =
             new List<List<BoardCell>>();
@@ -932,13 +942,13 @@ public class BoardManager : MonoBehaviour
         bool foundPair = false;
 
         for (int i = 0;
-            i < candidates.Count &&
-            !foundPair;
-            i++)
+             i < candidates.Count &&
+             !foundPair;
+             i++)
         {
             for (int j = i + 1;
-                j < candidates.Count;
-                j++)
+                 j < candidates.Count;
+                 j++)
             {
                 int overlap =
                     CountOverlap(
@@ -973,10 +983,10 @@ public class BoardManager : MonoBehaviour
         int registered = 0;
 
         foreach (List<BoardCell> sequence
-                in accepted)
+                 in accepted)
         {
-            // Re-check because an earlier accepted sequence
-            // may now be in existingSequences.
+            // Re-check because a previously accepted
+            // Sequence may now be in existingSequences.
             if (!IsCompatibleWithExistingSequences(
                     sequence,
                     existingSequences))
@@ -990,40 +1000,43 @@ public class BoardManager : MonoBehaviour
 
             foreach (BoardCell cell in sequence)
             {
-                if (!cell.IsCorner)
+                if (cell.IsCorner)
+                    continue;
+
+                cell.MarkAsCompletedSequence();
+
+                BoardCellView view =
+                    cellViews[
+                        cell.Row,
+                        cell.Column
+                    ];
+
+                if (view != null)
                 {
-                    cell.MarkAsCompletedSequence();
-
-                    BoardCellView view =
-                        cellViews[
-                            cell.Row,
-                            cell.Column
-                        ];
-
-                    if (view != null)
-                    {
-                        view.UpdateVisual();
-                    }
+                    view.UpdateVisual();
                 }
             }
 
             registered++;
 
             Debug.Log(
-                $"Player {ownerId} completed a Sequence."
+                $"Team {teamId} completed a Sequence."
             );
         }
 
         return registered;
     }
 
+    // =========================================================
+    // SEQUENCE OVERLAP CHECK
+    // =========================================================
 
     private bool IsCompatibleWithExistingSequences(
         List<BoardCell> candidate,
         List<List<BoardCell>> existingSequences)
     {
         foreach (List<BoardCell> existing
-                in existingSequences)
+                 in existingSequences)
         {
             int overlap =
                 CountOverlap(
@@ -1031,8 +1044,6 @@ public class BoardManager : MonoBehaviour
                     existing
                 );
 
-            // A new Sequence may share at most
-            // one position with an existing Sequence.
             if (overlap > 1)
             {
                 return false;
@@ -1042,15 +1053,13 @@ public class BoardManager : MonoBehaviour
         return true;
     }
 
-
     private int CountOverlap(
         List<BoardCell> first,
         List<BoardCell> second)
     {
         int overlap = 0;
 
-        foreach (BoardCell cell
-                in first)
+        foreach (BoardCell cell in first)
         {
             if (second.Contains(cell))
             {
@@ -1061,60 +1070,188 @@ public class BoardManager : MonoBehaviour
         return overlap;
     }
 
+    // =========================================================
+    // SEQUENCE COUNT
+    // =========================================================
 
     public int GetSequenceCount(
-        int ownerId)
+        int teamId)
     {
-        List<List<BoardCell>> ownerSequences;
+        List<List<BoardCell>> teamSequences;
 
         if (!completedSequences.TryGetValue(
-                ownerId,
-                out ownerSequences))
+                teamId,
+                out teamSequences))
         {
             return 0;
         }
 
-        return ownerSequences.Count;
+        return teamSequences.Count;
     }
 
-    // private void TestSequenceVisual()
-    // {
-    //     if (board == null)
-    //         return;
+    // =========================================================
+    // DEBUG / DEVELOPMENT TESTING
+    // =========================================================
 
-    //     // Top-left corner is the free/wild Sequence space.
-    //     // Put Player 1 chips on the next four cells.
+    public int DebugCreateNextSequenceForTeam(
+        int teamId)
+    {
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
 
-    //     for (int column = 1; column <= 4; column++)
-    //     {
-    //         BoardCell cell =
-    //             board.GetCell(0, column);
+        if (board == null)
+            return 0;
 
-    //         if (cell == null)
-    //             continue;
+        if (teamId <= 0)
+            return 0;
 
-    //         cell.SetOwner(1);
+        int existingCount =
+            GetSequenceCount(teamId);
 
-    //         BoardCellView view =
-    //             cellViews[0, column];
+        // =====================================================
+        // FIRST DEBUG SEQUENCE
+        //
+        // Uses top-left corner:
+        //
+        // [0,0] = wild corner
+        // [0,1]
+        // [0,2]
+        // [0,3]
+        // [0,4]
+        // =====================================================
 
-    //         if (view != null)
-    //         {
-    //             view.UpdateVisual();
-    //         }
-    //     }
+        if (existingCount == 0)
+        {
+            for (int column = 1;
+                column <= 4;
+                column++)
+            {
+                DebugSetCellForTeam(
+                    0,
+                    column,
+                    teamId
+                );
+            }
 
-    //     BoardCell lastCell =
-    //         board.GetCell(0, 4);
+            BoardCell lastCell =
+                board.GetCell(
+                    0,
+                    4
+                );
 
-    //     int created =
-    //         RegisterNewSequences(
-    //             1,
-    //             lastCell
-    //         );
+            int created =
+                RegisterNewSequences(
+                    teamId,
+                    lastCell
+                );
 
-    //     Debug.Log(
-    //         $"VISUAL TEST: Created {created} Sequence(s)."
-    //     );
-    // }
+            Debug.LogWarning(
+                $"DEBUG: Created first Sequence " +
+                $"for Team {teamId}."
+            );
+
+            return created;
+        }
+
+        // =====================================================
+        // SECOND DEBUG SEQUENCE
+        //
+        // Uses same top-left wild corner,
+        // but goes vertically:
+        //
+        // [0,0] = wild corner
+        // [1,0]
+        // [2,0]
+        // [3,0]
+        // [4,0]
+        //
+        // This overlaps the first Sequence by
+        // only one cell: the corner.
+        // =====================================================
+
+        if (existingCount == 1)
+        {
+            for (int row = 1;
+                row <= 4;
+                row++)
+            {
+                DebugSetCellForTeam(
+                    row,
+                    0,
+                    teamId
+                );
+            }
+
+            BoardCell lastCell =
+                board.GetCell(
+                    4,
+                    0
+                );
+
+            int created =
+                RegisterNewSequences(
+                    teamId,
+                    lastCell
+                );
+
+            Debug.LogWarning(
+                $"DEBUG: Created second Sequence " +
+                $"for Team {teamId}."
+            );
+
+            return created;
+        }
+
+        Debug.LogWarning(
+            $"DEBUG: Team {teamId} already has " +
+            $"{existingCount} Sequence(s)."
+        );
+
+        return 0;
+
+    #else
+
+        return 0;
+
+    #endif
+    }
+
+    private void DebugSetCellForTeam(
+        int row,
+        int column,
+        int teamId)
+    {
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+        BoardCell cell =
+            board.GetCell(
+                row,
+                column
+            );
+
+        if (cell == null)
+            return;
+
+        if (cell.IsCorner)
+            return;
+
+        // Completely clean this position first.
+        cell.ResetGameplayState();
+
+        cell.SetOwnerTeam(
+            teamId
+        );
+
+        BoardCellView view =
+            cellViews[
+                row,
+                column
+            ];
+
+        if (view != null)
+        {
+            view.UpdateVisual();
+        }
+
+    #endif
+    }
 }

@@ -209,7 +209,7 @@ public class BoardCellView : MonoBehaviour
             true
         );
 
-        switch (boardCell.OwnerId)
+        switch (boardCell.OwnerTeamId)
         {
             case 1:
 

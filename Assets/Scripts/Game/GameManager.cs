@@ -10,10 +10,14 @@ public class GameManager : MonoBehaviour
 
     [Header("Game Settings")]
     [SerializeField] private int playerCount = 2;
+    [SerializeField] private int teamCount = 2;
 
     [Header("Managers")]
     [SerializeField] private HandManager handManager;
     [SerializeField] private BoardManager boardManager;
+
+    [Header("UI")]
+    [SerializeField] private GameStatusUI gameStatusUI;
 
     // =========================================================
     // GAME DATA
@@ -27,7 +31,6 @@ public class GameManager : MonoBehaviour
     private int currentPlayerId = 1;
 
     private bool deadCardReplacedThisTurn = false;
-
     private bool gameOver = false;
 
     public IReadOnlyList<Player> Players => players;
@@ -83,7 +86,6 @@ public class GameManager : MonoBehaviour
 
     private void InitializeGame()
     {
-        // Check manager references FIRST.
         if (handManager == null ||
             boardManager == null)
         {
@@ -94,7 +96,15 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        if (!IsSupportedPlayerCount(playerCount))
+        if (gameStatusUI == null)
+        {
+            Debug.LogWarning(
+                "GameStatusUI reference is not assigned."
+            );
+        }
+
+        if (!IsSupportedPlayerCount(
+                playerCount))
         {
             Debug.LogError(
                 $"Unsupported player count: {playerCount}"
@@ -103,12 +113,28 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        if (!IsSupportedTeamSetup(
+                playerCount,
+                teamCount))
+        {
+            Debug.LogError(
+                $"Invalid setup: {playerCount} players " +
+                $"cannot be divided evenly into " +
+                $"{teamCount} teams."
+            );
+
+            return;
+        }
+
         gameOver = false;
 
         deadCardReplacedThisTurn = false;
+
         boardManager.ResetSequenceData();
 
-        boardManager.SetBoardLocked(false);
+        boardManager.SetBoardLocked(
+            false
+        );
 
         CreatePlayers();
 
@@ -116,18 +142,34 @@ public class GameManager : MonoBehaviour
 
         DealCards();
 
-        currentPlayerId = 1;
+        // Start with Seat 1.
+        Player firstPlayer =
+            GetPlayerBySeat(1);
 
-        boardManager.SetCurrentPlayer(
-            currentPlayerId
-        );
+        if (firstPlayer == null)
+        {
+            Debug.LogError(
+                "No player assigned to Seat 1."
+            );
+
+            return;
+        }
+
+        currentPlayerId =
+            firstPlayer.PlayerId;
+
+        SetBoardForCurrentPlayer();
 
         ShowPlayerHand(
             currentPlayerId
         );
 
+        // NEW
+        UpdateGameStatusUI();
+
         Debug.Log(
-            $"Game initialized with {playerCount} players."
+            $"Game initialized with {playerCount} players " +
+            $"and {teamCount} teams."
         );
     }
 
@@ -139,35 +181,164 @@ public class GameManager : MonoBehaviour
     {
         players.Clear();
 
-        for (int i = 1;
-             i <= playerCount;
-             i++)
+        for (int playerId = 1;
+             playerId <= playerCount;
+             playerId++)
         {
             Player player =
-                new Player(i);
+                new Player(
+                    playerId
+                );
 
             players.Add(
                 player
             );
         }
 
+        AssignTemporarySeatsAndTeams();
+
         Debug.Log(
-            $"Created {players.Count} players."
+            $"Created {players.Count} players " +
+            $"across {teamCount} teams."
         );
     }
+
+    // =========================================================
+    // TEMPORARY SEAT / TEAM ASSIGNMENT
+    // =========================================================
+
+    private void AssignTemporarySeatsAndTeams()
+    {
+        for (int i = 0;
+             i < players.Count;
+             i++)
+        {
+            Player player =
+                players[i];
+
+            int seatIndex =
+                i + 1;
+
+            int teamId =
+                (i % teamCount) + 1;
+
+            player.AssignSeat(
+                seatIndex
+            );
+
+            player.AssignTeam(
+                teamId
+            );
+
+            Debug.Log(
+                $"Player {player.PlayerId} -> " +
+                $"Seat {player.SeatIndex}, " +
+                $"Team {player.TeamId}"
+            );
+        }
+    }
+
+    // =========================================================
+    // PLAYER LOOKUP
+    // =========================================================
 
     public Player GetPlayer(
         int playerId)
     {
         foreach (Player player in players)
         {
-            if (player.PlayerId == playerId)
+            if (player.PlayerId ==
+                playerId)
             {
                 return player;
             }
         }
 
         return null;
+    }
+
+    private Player GetPlayerBySeat(
+        int seatIndex)
+    {
+        foreach (Player player in players)
+        {
+            if (player.SeatIndex ==
+                seatIndex)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    private Player GetCurrentPlayer()
+    {
+        return GetPlayer(
+            currentPlayerId
+        );
+    }
+
+    // =========================================================
+    // BOARD CURRENT PLAYER
+    // =========================================================
+
+    private void SetBoardForCurrentPlayer()
+    {
+        Player currentPlayer =
+            GetCurrentPlayer();
+
+        if (currentPlayer == null)
+        {
+            Debug.LogError(
+                $"Could not find current Player " +
+                $"{currentPlayerId}."
+            );
+
+            return;
+        }
+
+        boardManager.SetCurrentPlayer(
+            currentPlayer.PlayerId,
+            currentPlayer.TeamId
+        );
+    }
+
+    // =========================================================
+    // GAME STATUS UI
+    // =========================================================
+
+    private void UpdateGameStatusUI()
+    {
+        if (gameStatusUI == null)
+            return;
+
+        Player currentPlayer =
+            GetCurrentPlayer();
+
+        if (currentPlayer == null)
+            return;
+
+        int team1Sequences =
+            boardManager.GetSequenceCount(1);
+
+        int team2Sequences =
+            boardManager.GetSequenceCount(2);
+
+        int team3Sequences =
+            boardManager.GetSequenceCount(3);
+
+        int sequencesNeeded =
+            GetSequencesNeededToWin();
+
+        gameStatusUI.UpdateStatus(
+            currentPlayer,
+            teamCount,
+            team1Sequences,
+            team2Sequences,
+            team3Sequences,
+            sequencesNeeded
+        );
     }
 
     // =========================================================
@@ -197,7 +368,6 @@ public class GameManager : MonoBehaviour
                 playerCount
             );
 
-        // Deal one card to every player each round.
         for (int round = 0;
              round < cardsPerPlayer;
              round++)
@@ -255,7 +425,9 @@ public class GameManager : MonoBehaviour
         );
 
         Debug.Log(
-            $"Showing Player {playerId}'s hand."
+            $"Showing Player {player.PlayerId}'s hand " +
+            $"(Team {player.TeamId}, " +
+            $"Seat {player.SeatIndex})."
         );
     }
 
@@ -266,7 +438,6 @@ public class GameManager : MonoBehaviour
     private void HandleSelectedCardChanged(
         Card card)
     {
-        // Do not allow interaction after game over.
         if (gameOver)
         {
             boardManager.ClearHighlights();
@@ -278,7 +449,6 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        // Nothing selected.
         if (card == null)
         {
             boardManager.ClearHighlights();
@@ -308,14 +478,14 @@ public class GameManager : MonoBehaviour
             {
                 Debug.Log(
                     $"{card.GetCode()} selected: " +
-                    "place a chip on any empty space."
+                    "place a team chip on any empty space."
                 );
             }
             else if (card.IsOneEyedJack())
             {
                 Debug.Log(
                     $"{card.GetCode()} selected: " +
-                    "remove an opponent's chip."
+                    "remove an opponent team's chip."
                 );
             }
 
@@ -374,7 +544,8 @@ public class GameManager : MonoBehaviour
         );
 
         Debug.Log(
-            $"Showing legal positions for {card.GetCode()}."
+            $"Showing legal positions for " +
+            $"{card.GetCode()}."
         );
     }
 
@@ -391,8 +562,6 @@ public class GameManager : MonoBehaviour
         if (deadCard == null)
             return;
 
-        // Only one dead-card replacement
-        // is allowed during a turn.
         if (deadCardReplacedThisTurn)
         {
             Debug.Log(
@@ -402,7 +571,6 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        // Always verify again against current board state.
         if (!boardManager.IsDeadCard(
                 deadCard))
         {
@@ -418,29 +586,20 @@ public class GameManager : MonoBehaviour
         }
 
         Player currentPlayer =
-            GetPlayer(
-                currentPlayerId
-            );
+            GetCurrentPlayer();
 
         if (currentPlayer == null)
             return;
-
-        // -----------------------------------------------------
-        // REMOVE DEAD CARD
-        // -----------------------------------------------------
 
         currentPlayer.RemoveCard(
             deadCard
         );
 
         Debug.Log(
-            $"Player {currentPlayerId} discarded dead card " +
+            $"Player {currentPlayer.PlayerId} " +
+            $"discarded dead card " +
             $"{deadCard.GetCode()}."
         );
-
-        // -----------------------------------------------------
-        // DRAW REPLACEMENT
-        // -----------------------------------------------------
 
         Card replacementCard =
             deck.Draw();
@@ -452,7 +611,8 @@ public class GameManager : MonoBehaviour
             );
 
             Debug.Log(
-                $"Player {currentPlayerId} drew replacement " +
+                $"Player {currentPlayer.PlayerId} " +
+                $"drew replacement " +
                 $"{replacementCard.GetCode()}."
             );
         }
@@ -468,8 +628,6 @@ public class GameManager : MonoBehaviour
 
         boardManager.ClearHighlights();
 
-        // IMPORTANT:
-        // Same player continues their normal turn.
         ShowPlayerHand(
             currentPlayerId
         );
@@ -479,7 +637,9 @@ public class GameManager : MonoBehaviour
         );
 
         Debug.Log(
-            $"Player {currentPlayerId} continues their turn."
+            $"Player {currentPlayer.PlayerId} " +
+            $"(Team {currentPlayer.TeamId}) " +
+            "continues their turn."
         );
     }
 
@@ -498,23 +658,32 @@ public class GameManager : MonoBehaviour
             return;
 
         Player currentPlayer =
-            GetPlayer(
-                currentPlayerId
-            );
+            GetCurrentPlayer();
 
         if (currentPlayer == null)
-            return;
+        {
+            Debug.LogError(
+                $"Could not find current Player " +
+                $"{currentPlayerId}."
+            );
 
-        // -----------------------------------------------------
+            return;
+        }
+
+        int currentTeamId =
+            currentPlayer.TeamId;
+
+        // =====================================================
         // CONSUME PLAYED CARD
-        // -----------------------------------------------------
+        // =====================================================
 
         currentPlayer.RemoveCard(
             playedCard
         );
 
         Debug.Log(
-            $"Player {currentPlayerId} used " +
+            $"Player {currentPlayer.PlayerId} " +
+            $"(Team {currentTeamId}) used " +
             $"{playedCard.GetCode()}."
         );
 
@@ -522,24 +691,11 @@ public class GameManager : MonoBehaviour
         // SEQUENCE CHECK
         // =====================================================
 
-        /*
-         * placedCell is:
-         *
-         * Normal card:
-         *     board position where chip was placed
-         *
-         * Two-eyed Jack:
-         *     board position where chip was placed
-         *
-         * One-eyed Jack:
-         *     null because no chip was placed
-         */
-
         if (placedCell != null)
         {
             int newSequences =
                 boardManager.RegisterNewSequences(
-                    currentPlayerId,
+                    currentTeamId,
                     placedCell
                 );
 
@@ -547,18 +703,22 @@ public class GameManager : MonoBehaviour
             {
                 int totalSequences =
                     boardManager.GetSequenceCount(
-                        currentPlayerId
+                        currentTeamId
                     );
 
                 Debug.Log(
-                    $"Player {currentPlayerId} completed " +
+                    $"Team {currentTeamId} completed " +
                     $"{newSequences} new Sequence(s)."
                 );
 
                 Debug.Log(
-                    $"Player {currentPlayerId} now has " +
+                    $"Team {currentTeamId} now has " +
                     $"{totalSequences} total Sequence(s)."
                 );
+
+                // NEW
+                // Immediately update the counters.
+                UpdateGameStatusUI();
 
                 int sequencesNeeded =
                     GetSequencesNeededToWin();
@@ -567,7 +727,7 @@ public class GameManager : MonoBehaviour
                     sequencesNeeded)
                 {
                     EndGame(
-                        currentPlayerId
+                        currentTeamId
                     );
 
                     return;
@@ -589,7 +749,7 @@ public class GameManager : MonoBehaviour
             );
 
             Debug.Log(
-                $"Player {currentPlayerId} drew " +
+                $"Player {currentPlayer.PlayerId} drew " +
                 $"{replacementCard.GetCode()}."
             );
         }
@@ -600,7 +760,6 @@ public class GameManager : MonoBehaviour
             );
         }
 
-        // Successful play ends the player's turn.
         AdvanceTurn();
     }
 
@@ -613,57 +772,74 @@ public class GameManager : MonoBehaviour
         if (gameOver)
             return;
 
-        currentPlayerId++;
+        Player currentPlayer =
+            GetCurrentPlayer();
 
-        if (currentPlayerId >
+        if (currentPlayer == null)
+        {
+            Debug.LogError(
+                "Cannot advance turn because the " +
+                "current player does not exist."
+            );
+
+            return;
+        }
+
+        int nextSeat =
+            currentPlayer.SeatIndex + 1;
+
+        if (nextSeat >
             players.Count)
         {
-            currentPlayerId =
+            nextSeat =
                 1;
         }
 
-        // New player gets their own opportunity
-        // to replace one dead card.
+        Player nextPlayer =
+            GetPlayerBySeat(
+                nextSeat
+            );
+
+        if (nextPlayer == null)
+        {
+            Debug.LogError(
+                $"No player found in Seat {nextSeat}."
+            );
+
+            return;
+        }
+
+        currentPlayerId =
+            nextPlayer.PlayerId;
+
         deadCardReplacedThisTurn =
             false;
 
         boardManager.ClearHighlights();
 
-        boardManager.SetCurrentPlayer(
-            currentPlayerId
-        );
+        SetBoardForCurrentPlayer();
 
         ShowPlayerHand(
             currentPlayerId
         );
 
+        // NEW
+        UpdateGameStatusUI();
+
         Debug.Log(
-            $"Player {currentPlayerId}'s turn."
+            $"Player {nextPlayer.PlayerId}'s turn " +
+            $"(Team {nextPlayer.TeamId}, " +
+            $"Seat {nextPlayer.SeatIndex})."
         );
     }
 
     // =========================================================
     // SEQUENCE WIN REQUIREMENT
     // =========================================================
+
     private int GetSequencesNeededToWin()
     {
-        /*
-         * Current LOCAL player implementation:
-         *
-         * 2 players:
-         *     2 completed Sequences required
-         *
-         * 3 players:
-         *     1 completed Sequence required
-         *
-         * IMPORTANT:
-         *
-         * When teams are implemented,
-         * this should use the number of TEAMS,
-         * not simply playerCount.
-         */
-
-        if (playerCount == 3)
+        if (teamCount == 3)
         {
             return 1;
         }
@@ -676,7 +852,7 @@ public class GameManager : MonoBehaviour
     // =========================================================
 
     private void EndGame(
-        int winnerId)
+        int winnerTeamId)
     {
         if (gameOver)
             return;
@@ -694,8 +870,16 @@ public class GameManager : MonoBehaviour
             false
         );
 
+        // NEW
+        if (gameStatusUI != null)
+        {
+            gameStatusUI.ShowWinner(
+                winnerTeamId
+            );
+        }
+
         Debug.LogWarning(
-            $"PLAYER {winnerId} WINS THE GAME!"
+            $"TEAM {winnerTeamId} WINS THE GAME!"
         );
     }
 
@@ -749,5 +933,103 @@ public class GameManager : MonoBehaviour
             count == 9 ||
             count == 10 ||
             count == 12;
+    }
+
+    // =========================================================
+    // TEAM SETUP VALIDATION
+    // =========================================================
+
+    private bool IsSupportedTeamSetup(
+        int players,
+        int teams)
+    {
+        if (teams != 2 &&
+            teams != 3)
+        {
+            return false;
+        }
+
+        if (players % teams != 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+
+
+    // =========================================================
+    // DEBUG / DEVELOPMENT TESTING
+    // =========================================================
+
+    public void DebugCreateSequenceForCurrentTeam()
+    {
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+        if (gameOver)
+        {
+            Debug.LogWarning(
+                "DEBUG: Game is already over."
+            );
+
+            return;
+        }
+
+        Player currentPlayer =
+            GetCurrentPlayer();
+
+        if (currentPlayer == null)
+        {
+            Debug.LogError(
+                "DEBUG: Current player not found."
+            );
+
+            return;
+        }
+
+        int teamId =
+            currentPlayer.TeamId;
+
+        int created =
+            boardManager.DebugCreateNextSequenceForTeam(
+                teamId
+            );
+
+        if (created <= 0)
+        {
+            Debug.LogWarning(
+                $"DEBUG: No new Sequence created " +
+                $"for Team {teamId}."
+            );
+
+            return;
+        }
+
+        // Update on-screen counter.
+        UpdateGameStatusUI();
+
+        int totalSequences =
+            boardManager.GetSequenceCount(
+                teamId
+            );
+
+        Debug.LogWarning(
+            $"DEBUG: Team {teamId} now has " +
+            $"{totalSequences} Sequence(s)."
+        );
+
+        int sequencesNeeded =
+            GetSequencesNeededToWin();
+
+        if (totalSequences >=
+            sequencesNeeded)
+        {
+            EndGame(
+                teamId
+            );
+        }
+
+    #endif
     }
 }
