@@ -4,12 +4,20 @@ using UnityEngine;
 
 public class GameManager : MonoBehaviour
 {
+    // =========================================================
+    // SETTINGS
+    // =========================================================
+
     [Header("Game Settings")]
-    [SerializeField] private int playerCount = 3;
+    [SerializeField] private int playerCount = 2;
 
     [Header("Managers")]
     [SerializeField] private HandManager handManager;
     [SerializeField] private BoardManager boardManager;
+
+    // =========================================================
+    // GAME DATA
+    // =========================================================
 
     private Deck deck;
 
@@ -18,7 +26,15 @@ public class GameManager : MonoBehaviour
 
     private int currentPlayerId = 1;
 
+    private bool deadCardReplacedThisTurn = false;
+
+    private bool gameOver = false;
+
     public IReadOnlyList<Player> Players => players;
+
+    // =========================================================
+    // EVENTS
+    // =========================================================
 
     private void OnEnable()
     {
@@ -26,6 +42,9 @@ public class GameManager : MonoBehaviour
         {
             handManager.OnSelectedCardChanged +=
                 HandleSelectedCardChanged;
+
+            handManager.OnDeadCardRequested +=
+                HandleDeadCardRequested;
         }
 
         if (boardManager != null)
@@ -41,6 +60,9 @@ public class GameManager : MonoBehaviour
         {
             handManager.OnSelectedCardChanged -=
                 HandleSelectedCardChanged;
+
+            handManager.OnDeadCardRequested -=
+                HandleDeadCardRequested;
         }
 
         if (boardManager != null)
@@ -56,11 +78,22 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
-    // GAME INITIALIZATION
+    // INITIALIZATION
     // =========================================================
 
     private void InitializeGame()
     {
+        // Check manager references FIRST.
+        if (handManager == null ||
+            boardManager == null)
+        {
+            Debug.LogError(
+                "GameManager manager references are missing."
+            );
+
+            return;
+        }
+
         if (!IsSupportedPlayerCount(playerCount))
         {
             Debug.LogError(
@@ -70,8 +103,17 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        gameOver = false;
+
+        deadCardReplacedThisTurn = false;
+        boardManager.ResetSequenceData();
+
+        boardManager.SetBoardLocked(false);
+
         CreatePlayers();
+
         CreateDeck();
+
         DealCards();
 
         currentPlayerId = 1;
@@ -97,10 +139,15 @@ public class GameManager : MonoBehaviour
     {
         players.Clear();
 
-        for (int i = 1; i <= playerCount; i++)
+        for (int i = 1;
+             i <= playerCount;
+             i++)
         {
+            Player player =
+                new Player(i);
+
             players.Add(
-                new Player(i)
+                player
             );
         }
 
@@ -109,12 +156,15 @@ public class GameManager : MonoBehaviour
         );
     }
 
-    public Player GetPlayer(int playerId)
+    public Player GetPlayer(
+        int playerId)
     {
         foreach (Player player in players)
         {
             if (player.PlayerId == playerId)
+            {
                 return player;
+            }
         }
 
         return null;
@@ -126,7 +176,8 @@ public class GameManager : MonoBehaviour
 
     private void CreateDeck()
     {
-        deck = new Deck();
+        deck =
+            new Deck();
 
         deck.Shuffle();
 
@@ -142,18 +193,26 @@ public class GameManager : MonoBehaviour
     private void DealCards()
     {
         int cardsPerPlayer =
-            GetCardsPerPlayer(playerCount);
+            GetCardsPerPlayer(
+                playerCount
+            );
 
-        // Deal one card to each player per round.
+        // Deal one card to every player each round.
         for (int round = 0;
              round < cardsPerPlayer;
              round++)
         {
             foreach (Player player in players)
             {
-                Card card = deck.Draw();
+                Card card =
+                    deck.Draw();
 
-                player.AddCard(card);
+                if (card != null)
+                {
+                    player.AddCard(
+                        card
+                    );
+                }
             }
         }
 
@@ -171,18 +230,29 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
-    // HAND UI
+    // HAND DISPLAY
     // =========================================================
 
-    public void ShowPlayerHand(int playerId)
+    public void ShowPlayerHand(
+        int playerId)
     {
         Player player =
-            GetPlayer(playerId);
+            GetPlayer(
+                playerId
+            );
 
         if (player == null)
-            return;
+        {
+            Debug.LogWarning(
+                $"Could not find Player {playerId}."
+            );
 
-        handManager.Initialize(player);
+            return;
+        }
+
+        handManager.Initialize(
+            player
+        );
 
         Debug.Log(
             $"Showing Player {playerId}'s hand."
@@ -190,19 +260,118 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
-    // HAND SELECTION
+    // CARD SELECTION
     // =========================================================
 
     private void HandleSelectedCardChanged(
         Card card)
     {
-        if (card == null)
+        // Do not allow interaction after game over.
+        if (gameOver)
         {
             boardManager.ClearHighlights();
+
+            handManager.SetDeadCardButtonState(
+                false
+            );
+
             return;
         }
 
-        boardManager.HighlightMatchingCard(card);
+        // Nothing selected.
+        if (card == null)
+        {
+            boardManager.ClearHighlights();
+
+            handManager.SetDeadCardButtonState(
+                false
+            );
+
+            return;
+        }
+
+        // =====================================================
+        // JACK
+        // =====================================================
+
+        if (card.IsJack())
+        {
+            handManager.SetDeadCardButtonState(
+                false
+            );
+
+            boardManager.HighlightMatchingCard(
+                card
+            );
+
+            if (card.IsTwoEyedJack())
+            {
+                Debug.Log(
+                    $"{card.GetCode()} selected: " +
+                    "place a chip on any empty space."
+                );
+            }
+            else if (card.IsOneEyedJack())
+            {
+                Debug.Log(
+                    $"{card.GetCode()} selected: " +
+                    "remove an opponent's chip."
+                );
+            }
+
+            return;
+        }
+
+        // =====================================================
+        // DEAD CARD
+        // =====================================================
+
+        bool isDead =
+            boardManager.IsDeadCard(
+                card
+            );
+
+        if (isDead)
+        {
+            boardManager.ClearHighlights();
+
+            bool canReplace =
+                !deadCardReplacedThisTurn;
+
+            handManager.SetDeadCardButtonState(
+                canReplace
+            );
+
+            if (canReplace)
+            {
+                Debug.Log(
+                    $"{card.GetCode()} is a dead card. " +
+                    "It may be replaced."
+                );
+            }
+            else
+            {
+                Debug.Log(
+                    $"{card.GetCode()} is dead, but a " +
+                    "dead card has already been replaced " +
+                    "this turn."
+                );
+            }
+
+            return;
+        }
+
+        // =====================================================
+        // NORMAL CARD
+        // =====================================================
+
+        handManager.SetDeadCardButtonState(
+            false
+        );
+
+        boardManager.HighlightMatchingCard(
+            card
+        );
 
         Debug.Log(
             $"Showing legal positions for {card.GetCode()}."
@@ -210,29 +379,206 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
-    // SUCCESSFUL MOVE
+    // DEAD CARD REPLACEMENT
     // =========================================================
 
-    private void HandleMoveCompleted(
-        Card playedCard)
+    private void HandleDeadCardRequested(
+        Card deadCard)
     {
+        if (gameOver)
+            return;
+
+        if (deadCard == null)
+            return;
+
+        // Only one dead-card replacement
+        // is allowed during a turn.
+        if (deadCardReplacedThisTurn)
+        {
+            Debug.Log(
+                "Dead-card replacement already used this turn."
+            );
+
+            return;
+        }
+
+        // Always verify again against current board state.
+        if (!boardManager.IsDeadCard(
+                deadCard))
+        {
+            Debug.Log(
+                $"{deadCard.GetCode()} is not a dead card."
+            );
+
+            handManager.SetDeadCardButtonState(
+                false
+            );
+
+            return;
+        }
+
         Player currentPlayer =
-            GetPlayer(currentPlayerId);
+            GetPlayer(
+                currentPlayerId
+            );
 
         if (currentPlayer == null)
             return;
 
-        // Remove played card from hand.
+        // -----------------------------------------------------
+        // REMOVE DEAD CARD
+        // -----------------------------------------------------
+
+        currentPlayer.RemoveCard(
+            deadCard
+        );
+
+        Debug.Log(
+            $"Player {currentPlayerId} discarded dead card " +
+            $"{deadCard.GetCode()}."
+        );
+
+        // -----------------------------------------------------
+        // DRAW REPLACEMENT
+        // -----------------------------------------------------
+
+        Card replacementCard =
+            deck.Draw();
+
+        if (replacementCard != null)
+        {
+            currentPlayer.AddCard(
+                replacementCard
+            );
+
+            Debug.Log(
+                $"Player {currentPlayerId} drew replacement " +
+                $"{replacementCard.GetCode()}."
+            );
+        }
+        else
+        {
+            Debug.Log(
+                "Deck is empty. No replacement card drawn."
+            );
+        }
+
+        deadCardReplacedThisTurn =
+            true;
+
+        boardManager.ClearHighlights();
+
+        // IMPORTANT:
+        // Same player continues their normal turn.
+        ShowPlayerHand(
+            currentPlayerId
+        );
+
+        handManager.SetDeadCardButtonState(
+            false
+        );
+
+        Debug.Log(
+            $"Player {currentPlayerId} continues their turn."
+        );
+    }
+
+    // =========================================================
+    // SUCCESSFUL BOARD PLAY
+    // =========================================================
+
+    private void HandleMoveCompleted(
+        Card playedCard,
+        BoardCell placedCell)
+    {
+        if (gameOver)
+            return;
+
+        if (playedCard == null)
+            return;
+
+        Player currentPlayer =
+            GetPlayer(
+                currentPlayerId
+            );
+
+        if (currentPlayer == null)
+            return;
+
+        // -----------------------------------------------------
+        // CONSUME PLAYED CARD
+        // -----------------------------------------------------
+
         currentPlayer.RemoveCard(
             playedCard
         );
 
         Debug.Log(
-            $"Removed {playedCard.GetCode()} " +
-            $"from Player {currentPlayerId}'s hand."
+            $"Player {currentPlayerId} used " +
+            $"{playedCard.GetCode()}."
         );
 
-        // Draw replacement card.
+        // =====================================================
+        // SEQUENCE CHECK
+        // =====================================================
+
+        /*
+         * placedCell is:
+         *
+         * Normal card:
+         *     board position where chip was placed
+         *
+         * Two-eyed Jack:
+         *     board position where chip was placed
+         *
+         * One-eyed Jack:
+         *     null because no chip was placed
+         */
+
+        if (placedCell != null)
+        {
+            int newSequences =
+                boardManager.RegisterNewSequences(
+                    currentPlayerId,
+                    placedCell
+                );
+
+            if (newSequences > 0)
+            {
+                int totalSequences =
+                    boardManager.GetSequenceCount(
+                        currentPlayerId
+                    );
+
+                Debug.Log(
+                    $"Player {currentPlayerId} completed " +
+                    $"{newSequences} new Sequence(s)."
+                );
+
+                Debug.Log(
+                    $"Player {currentPlayerId} now has " +
+                    $"{totalSequences} total Sequence(s)."
+                );
+
+                int sequencesNeeded =
+                    GetSequencesNeededToWin();
+
+                if (totalSequences >=
+                    sequencesNeeded)
+                {
+                    EndGame(
+                        currentPlayerId
+                    );
+
+                    return;
+                }
+            }
+        }
+
+        // =====================================================
+        // DRAW REPLACEMENT
+        // =====================================================
+
         Card replacementCard =
             deck.Draw();
 
@@ -254,6 +600,7 @@ public class GameManager : MonoBehaviour
             );
         }
 
+        // Successful play ends the player's turn.
         AdvanceTurn();
     }
 
@@ -263,12 +610,22 @@ public class GameManager : MonoBehaviour
 
     private void AdvanceTurn()
     {
+        if (gameOver)
+            return;
+
         currentPlayerId++;
 
-        if (currentPlayerId > players.Count)
+        if (currentPlayerId >
+            players.Count)
         {
-            currentPlayerId = 1;
+            currentPlayerId =
+                1;
         }
+
+        // New player gets their own opportunity
+        // to replace one dead card.
+        deadCardReplacedThisTurn =
+            false;
 
         boardManager.ClearHighlights();
 
@@ -286,10 +643,68 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
+    // SEQUENCE WIN REQUIREMENT
+    // =========================================================
+    private int GetSequencesNeededToWin()
+    {
+        /*
+         * Current LOCAL player implementation:
+         *
+         * 2 players:
+         *     2 completed Sequences required
+         *
+         * 3 players:
+         *     1 completed Sequence required
+         *
+         * IMPORTANT:
+         *
+         * When teams are implemented,
+         * this should use the number of TEAMS,
+         * not simply playerCount.
+         */
+
+        if (playerCount == 3)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    // =========================================================
+    // GAME OVER
+    // =========================================================
+
+    private void EndGame(
+        int winnerId)
+    {
+        if (gameOver)
+            return;
+
+        gameOver =
+            true;
+
+        boardManager.ClearHighlights();
+
+        boardManager.SetBoardLocked(
+            true
+        );
+
+        handManager.SetDeadCardButtonState(
+            false
+        );
+
+        Debug.LogWarning(
+            $"PLAYER {winnerId} WINS THE GAME!"
+        );
+    }
+
+    // =========================================================
     // HAND SIZE
     // =========================================================
 
-    private int GetCardsPerPlayer(int count)
+    private int GetCardsPerPlayer(
+        int count)
     {
         switch (count)
         {
@@ -318,7 +733,12 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private bool IsSupportedPlayerCount(int count)
+    // =========================================================
+    // PLAYER COUNT VALIDATION
+    // =========================================================
+
+    private bool IsSupportedPlayerCount(
+        int count)
     {
         return
             count == 2 ||

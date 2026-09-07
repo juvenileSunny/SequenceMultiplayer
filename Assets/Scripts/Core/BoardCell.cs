@@ -3,25 +3,34 @@ using System;
 [Serializable]
 public class BoardCell
 {
-    public int Row;
-    public int Column;
+    public int Row { get; }
+    public int Column { get; }
 
-    public Card Card;
+    public Card Card { get; private set; }
 
-    public bool IsCorner;
+    public bool IsCorner { get; }
 
-    // -1 means the cell is not occupied by any player/team.
-    public int OwnerId = -1;
+    public int OwnerId { get; private set; } = -1;
 
-    public bool IsOccupied => OwnerId != -1;
+    // Once this cell belongs to a completed Sequence,
+    // a one-eyed Jack cannot remove it.
+    public bool IsPartOfCompletedSequence
+    {
+        get;
+        private set;
+    } = false;
 
-    public BoardCell(int row, int column, bool isCorner = false)
+    public bool IsOccupied =>
+        OwnerId != -1;
+
+    public BoardCell(
+        int row,
+        int column,
+        bool isCorner)
     {
         Row = row;
         Column = column;
         IsCorner = isCorner;
-        OwnerId = -1;
-        Card = null;
     }
 
     public void SetCard(Card card)
@@ -29,13 +38,18 @@ public class BoardCell
         Card = card;
     }
 
-    public void SetOwner(int playerId)
+    public void SetOwner(int ownerId)
     {
-        OwnerId = playerId;
+        OwnerId = ownerId;
     }
 
     public void ClearOwner()
     {
         OwnerId = -1;
+    }
+
+    public void MarkAsCompletedSequence()
+    {
+        IsPartOfCompletedSequence = true;
     }
 }

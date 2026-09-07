@@ -14,6 +14,8 @@ public class BoardCellView : MonoBehaviour
 
     [SerializeField] private Button button;
     [SerializeField] private Outline legalMoveOutline;
+    [SerializeField] private Outline sequenceOutline;
+    [SerializeField] private Image sequenceRing;
 
     private BoardCell boardCell;
 
@@ -46,16 +48,35 @@ public class BoardCellView : MonoBehaviour
 
         UpdateCardVisual();
         UpdateChipVisual();
+        UpdateSequenceVisual();
         UpdateButtonState();
     }
 
+    private void UpdateSequenceVisual()
+    {
+        if (sequenceRing == null)
+            return;
+
+        bool show =
+            boardCell != null &&
+            !boardCell.IsCorner &&
+            boardCell.IsOccupied &&
+            boardCell.IsPartOfCompletedSequence;
+
+        sequenceRing.gameObject.SetActive(show);
+    }
     public void SetHighlighted(bool highlighted)
     {
         if (legalMoveOutline != null)
         {
-            legalMoveOutline.enabled = highlighted;
+            legalMoveOutline.enabled =
+                highlighted;
         }
     }
+
+    // =========================================================
+    // CARD VISUAL
+    // =========================================================
 
     private void UpdateCardVisual()
     {
@@ -65,20 +86,29 @@ public class BoardCellView : MonoBehaviour
                 $"{boardCell.Row},{boardCell.Column}";
         }
 
-        // -------------------------
+        // -----------------------------------------------------
         // SEQUENCE CORNER
-        // -------------------------
+        // -----------------------------------------------------
 
         if (boardCell.IsCorner)
         {
             Sprite cornerSprite =
-                Resources.Load<Sprite>("Cards/SEQUENCE");
+                Resources.Load<Sprite>(
+                    "Cards/SEQUENCE"
+                );
 
-            if (cornerSprite != null && cardImage != null)
+            if (cornerSprite != null &&
+                cardImage != null)
             {
-                cardImage.gameObject.SetActive(true);
-                cardImage.sprite = cornerSprite;
-                cardImage.preserveAspect = true;
+                cardImage.gameObject.SetActive(
+                    true
+                );
+
+                cardImage.sprite =
+                    cornerSprite;
+
+                cardImage.preserveAspect =
+                    true;
             }
 
             if (cardText != null)
@@ -87,15 +117,16 @@ public class BoardCellView : MonoBehaviour
                     cornerSprite == null
                 );
 
-                cardText.text = "Sequence";
+                cardText.text =
+                    "Sequence";
             }
 
             return;
         }
 
-        // -------------------------
+        // -----------------------------------------------------
         // NORMAL CARD
-        // -------------------------
+        // -----------------------------------------------------
 
         if (boardCell.Card == null)
             return;
@@ -112,14 +143,22 @@ public class BoardCellView : MonoBehaviour
         {
             if (cardImage != null)
             {
-                cardImage.gameObject.SetActive(true);
-                cardImage.sprite = cardSprite;
-                cardImage.preserveAspect = true;
+                cardImage.gameObject.SetActive(
+                    true
+                );
+
+                cardImage.sprite =
+                    cardSprite;
+
+                cardImage.preserveAspect =
+                    true;
             }
 
             if (cardText != null)
             {
-                cardText.gameObject.SetActive(false);
+                cardText.gameObject.SetActive(
+                    false
+                );
             }
         }
         else
@@ -130,63 +169,120 @@ public class BoardCellView : MonoBehaviour
 
             if (cardImage != null)
             {
-                cardImage.gameObject.SetActive(false);
+                cardImage.gameObject.SetActive(
+                    false
+                );
             }
 
             if (cardText != null)
             {
-                cardText.gameObject.SetActive(true);
-                cardText.text = cardCode;
+                cardText.gameObject.SetActive(
+                    true
+                );
+
+                cardText.text =
+                    cardCode;
             }
         }
     }
+
+    // =========================================================
+    // CHIP VISUAL
+    // =========================================================
 
     private void UpdateChipVisual()
     {
         if (chipImage == null)
             return;
 
+        // No owner = hide chip.
         if (!boardCell.IsOccupied)
         {
-            chipImage.gameObject.SetActive(false);
+            chipImage.gameObject.SetActive(
+                false
+            );
+
             return;
         }
 
-        chipImage.gameObject.SetActive(true);
+        chipImage.gameObject.SetActive(
+            true
+        );
 
         switch (boardCell.OwnerId)
         {
             case 1:
+
                 chipImage.color =
-                    new Color(0.9f, 0.05f, 0.05f, 0.65f);
+                    new Color(
+                        0.9f,
+                        0.05f,
+                        0.05f,
+                        0.65f
+                    );
+
                 break;
 
             case 2:
+
                 chipImage.color =
-                    new Color(0.05f, 0.3f, 0.9f, 0.65f);
+                    new Color(
+                        0.05f,
+                        0.3f,
+                        0.9f,
+                        0.65f
+                    );
+
                 break;
 
             case 3:
+
                 chipImage.color =
-                    new Color(0.05f, 0.7f, 0.15f, 0.65f);
+                    new Color(
+                        0.05f,
+                        0.7f,
+                        0.15f,
+                        0.65f
+                    );
+
                 break;
 
             default:
-                chipImage.color =
-                    Color.clear;
+
+                chipImage.gameObject.SetActive(
+                    false
+                );
+
                 break;
         }
     }
+
+    // =========================================================
+    // BUTTON
+    // =========================================================
 
     private void UpdateButtonState()
     {
         if (button == null)
             return;
 
-        // Corner spaces cannot be clicked.
-        // Occupied spaces cannot be clicked again.
+        /*
+         * Do NOT disable occupied cells here.
+         *
+         * Normal cards:
+         *     BoardManager rejects occupied cells.
+         *
+         * Two-eyed Jacks:
+         *     BoardManager rejects occupied cells.
+         *
+         * One-eyed Jacks:
+         *     BoardManager NEEDS occupied cells clickable.
+         *
+         * Therefore BoardManager is responsible
+         * for validating each click.
+         */
+
         button.interactable =
-            !boardCell.IsCorner &&
-            !boardCell.IsOccupied;
+            !boardCell.IsCorner;
     }
 }
