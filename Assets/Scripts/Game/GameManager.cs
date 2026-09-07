@@ -5,12 +5,18 @@ using UnityEngine;
 public class GameManager : MonoBehaviour
 {
     // =========================================================
-    // SETTINGS
+    // LOCAL TEST SETTINGS
     // =========================================================
 
-    [Header("Game Settings")]
-    [SerializeField] private int playerCount = 2;
-    [SerializeField] private int teamCount = 2;
+    [Header("Local Test Settings")]
+    [SerializeField] private bool autoStartLocalTestGame = true;
+
+    [SerializeField] private int localTestPlayerCount = 6;
+    [SerializeField] private int localTestTeamCount = 2;
+
+    // =========================================================
+    // REFERENCES
+    // =========================================================
 
     [Header("Managers")]
     [SerializeField] private HandManager handManager;
@@ -23,17 +29,27 @@ public class GameManager : MonoBehaviour
     // GAME DATA
     // =========================================================
 
+    private GameSessionConfig sessionConfig;
+
     private Deck deck;
 
     private readonly List<Player> players =
         new List<Player>();
 
-    private int currentPlayerId = 1;
+    private int currentPlayerId = -1;
 
     private bool deadCardReplacedThisTurn = false;
     private bool gameOver = false;
 
-    public IReadOnlyList<Player> Players => players;
+    // =========================================================
+    // PUBLIC DATA
+    // =========================================================
+
+    public IReadOnlyList<Player> Players =>
+        players;
+
+    public GameSessionConfig SessionConfig =>
+        sessionConfig;
 
     // =========================================================
     // EVENTS
@@ -75,17 +91,37 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    // =========================================================
+    // START
+    // =========================================================
+
     private void Start()
     {
-        InitializeGame();
+        if (!autoStartLocalTestGame)
+            return;
+
+        GameSessionConfig localConfig =
+            CreateLocalTestConfig(
+                localTestPlayerCount,
+                localTestTeamCount
+            );
+
+        StartGame(
+            localConfig
+        );
     }
 
     // =========================================================
-    // INITIALIZATION
+    // PUBLIC GAME START
     // =========================================================
 
-    private void InitializeGame()
+    public void StartGame(
+        GameSessionConfig config)
     {
+        // -----------------------------------------------------
+        // REFERENCES
+        // -----------------------------------------------------
+
         if (handManager == null ||
             boardManager == null)
         {
@@ -96,39 +132,47 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        if (gameStatusUI == null)
-        {
-            Debug.LogWarning(
-                "GameStatusUI reference is not assigned."
-            );
-        }
+        // -----------------------------------------------------
+        // CONFIG
+        // -----------------------------------------------------
 
-        if (!IsSupportedPlayerCount(
-                playerCount))
+        if (config == null)
         {
             Debug.LogError(
-                $"Unsupported player count: {playerCount}"
+                "Cannot start game. " +
+                "GameSessionConfig is null."
             );
 
             return;
         }
 
-        if (!IsSupportedTeamSetup(
-                playerCount,
-                teamCount))
+        string validationError;
+
+        if (!config.IsValid(
+                out validationError))
         {
             Debug.LogError(
-                $"Invalid setup: {playerCount} players " +
-                $"cannot be divided evenly into " +
-                $"{teamCount} teams."
+                "Invalid GameSessionConfig: " +
+                validationError
             );
 
             return;
         }
 
-        gameOver = false;
+        // Config becomes the authoritative setup
+        // for this local game instance.
+        sessionConfig =
+            config;
 
-        deadCardReplacedThisTurn = false;
+        // -----------------------------------------------------
+        // RESET GAME STATE
+        // -----------------------------------------------------
+
+        gameOver =
+            false;
+
+        deadCardReplacedThisTurn =
+            false;
 
         boardManager.ResetSequenceData();
 
@@ -136,20 +180,32 @@ public class GameManager : MonoBehaviour
             false
         );
 
-        CreatePlayers();
+        // -----------------------------------------------------
+        // CREATE MATCH
+        // -----------------------------------------------------
+
+        CreatePlayersFromConfig(
+            sessionConfig
+        );
 
         CreateDeck();
 
         DealCards();
 
-        // Start with Seat 1.
+        // -----------------------------------------------------
+        // FIRST TURN = SEAT 1
+        // -----------------------------------------------------
+
         Player firstPlayer =
-            GetPlayerBySeat(1);
+            GetPlayerBySeat(
+                1
+            );
 
         if (firstPlayer == null)
         {
             Debug.LogError(
-                "No player assigned to Seat 1."
+                "Cannot start game. " +
+                "No player occupies Seat 1."
             );
 
             return;
@@ -164,70 +220,89 @@ public class GameManager : MonoBehaviour
             currentPlayerId
         );
 
-        // NEW
         UpdateGameStatusUI();
 
         Debug.Log(
-            $"Game initialized with {playerCount} players " +
-            $"and {teamCount} teams."
+            $"Game started: " +
+            $"{sessionConfig.PlayerCount} players, " +
+            $"{sessionConfig.TeamCount} teams."
         );
     }
 
     // =========================================================
-    // PLAYERS
+    // TEMPORARY LOCAL CONFIG
     // =========================================================
 
-    private void CreatePlayers()
+    private GameSessionConfig CreateLocalTestConfig(
+        int playerCount,
+        int teamCount)
     {
-        players.Clear();
+        GameSessionConfig config =
+            new GameSessionConfig(
+                playerCount,
+                teamCount
+            );
 
-        for (int playerId = 1;
-             playerId <= playerCount;
-             playerId++)
+        // Avoid modulo-by-zero if someone puts
+        // an invalid value in the Inspector.
+        if (teamCount <= 0)
+            return config;
+
+        for (int seatIndex = 1;
+             seatIndex <= playerCount;
+             seatIndex++)
         {
-            Player player =
-                new Player(
-                    playerId
-                );
+            // Current local testing uses:
+            //
+            // Player 1 -> Seat 1
+            // Player 2 -> Seat 2
+            // etc.
+            //
+            // This is ONLY the local test configuration.
+            int playerId =
+                seatIndex;
 
-            players.Add(
-                player
+            int teamId =
+                ((seatIndex - 1) %
+                    teamCount) + 1;
+
+            config.AddPlayer(
+                playerId,
+                seatIndex,
+                teamId
             );
         }
 
-        AssignTemporarySeatsAndTeams();
-
-        Debug.Log(
-            $"Created {players.Count} players " +
-            $"across {teamCount} teams."
-        );
+        return config;
     }
 
     // =========================================================
-    // TEMPORARY SEAT / TEAM ASSIGNMENT
+    // CREATE PLAYERS FROM SESSION CONFIG
     // =========================================================
 
-    private void AssignTemporarySeatsAndTeams()
+    private void CreatePlayersFromConfig(
+        GameSessionConfig config)
     {
-        for (int i = 0;
-             i < players.Count;
-             i++)
+        players.Clear();
+
+        foreach (PlayerSlotData slot
+                 in config.PlayerSlots)
         {
             Player player =
-                players[i];
-
-            int seatIndex =
-                i + 1;
-
-            int teamId =
-                (i % teamCount) + 1;
+                new Player(
+                    slot.PlayerId
+                );
 
             player.AssignSeat(
-                seatIndex
+                slot.SeatIndex
             );
 
             player.AssignTeam(
-                teamId
+                slot.TeamId
+            );
+
+            players.Add(
+                player
             );
 
             Debug.Log(
@@ -236,6 +311,11 @@ public class GameManager : MonoBehaviour
                 $"Team {player.TeamId}"
             );
         }
+
+        Debug.Log(
+            $"Created {players.Count} players " +
+            $"from GameSessionConfig."
+        );
     }
 
     // =========================================================
@@ -245,7 +325,8 @@ public class GameManager : MonoBehaviour
     public Player GetPlayer(
         int playerId)
     {
-        foreach (Player player in players)
+        foreach (Player player
+                 in players)
         {
             if (player.PlayerId ==
                 playerId)
@@ -260,7 +341,8 @@ public class GameManager : MonoBehaviour
     private Player GetPlayerBySeat(
         int seatIndex)
     {
-        foreach (Player player in players)
+        foreach (Player player
+                 in players)
         {
             if (player.SeatIndex ==
                 seatIndex)
@@ -313,6 +395,9 @@ public class GameManager : MonoBehaviour
         if (gameStatusUI == null)
             return;
 
+        if (sessionConfig == null)
+            return;
+
         Player currentPlayer =
             GetCurrentPlayer();
 
@@ -320,20 +405,26 @@ public class GameManager : MonoBehaviour
             return;
 
         int team1Sequences =
-            boardManager.GetSequenceCount(1);
+            boardManager.GetSequenceCount(
+                1
+            );
 
         int team2Sequences =
-            boardManager.GetSequenceCount(2);
+            boardManager.GetSequenceCount(
+                2
+            );
 
         int team3Sequences =
-            boardManager.GetSequenceCount(3);
+            boardManager.GetSequenceCount(
+                3
+            );
 
         int sequencesNeeded =
             GetSequencesNeededToWin();
 
         gameStatusUI.UpdateStatus(
             currentPlayer,
-            teamCount,
+            sessionConfig.TeamCount,
             team1Sequences,
             team2Sequences,
             team3Sequences,
@@ -353,7 +444,8 @@ public class GameManager : MonoBehaviour
         deck.Shuffle();
 
         Debug.Log(
-            $"Deck shuffled. Cards remaining: {deck.Count}"
+            $"Deck shuffled. Cards remaining: " +
+            $"{deck.Count}"
         );
     }
 
@@ -363,16 +455,20 @@ public class GameManager : MonoBehaviour
 
     private void DealCards()
     {
+        if (sessionConfig == null)
+            return;
+
         int cardsPerPlayer =
             GetCardsPerPlayer(
-                playerCount
+                sessionConfig.PlayerCount
             );
 
         for (int round = 0;
              round < cardsPerPlayer;
              round++)
         {
-            foreach (Player player in players)
+            foreach (Player player
+                     in players)
             {
                 Card card =
                     deck.Draw();
@@ -386,7 +482,8 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        foreach (Player player in players)
+        foreach (Player player
+                 in players)
         {
             Debug.Log(
                 $"Player {player.PlayerId}: " +
@@ -395,7 +492,8 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log(
-            $"Cards remaining in deck: {deck.Count}"
+            $"Cards remaining in deck: " +
+            $"{deck.Count}"
         );
     }
 
@@ -591,6 +689,7 @@ public class GameManager : MonoBehaviour
         if (currentPlayer == null)
             return;
 
+        // Remove dead card.
         currentPlayer.RemoveCard(
             deadCard
         );
@@ -601,6 +700,7 @@ public class GameManager : MonoBehaviour
             $"{deadCard.GetCode()}."
         );
 
+        // Draw replacement.
         Card replacementCard =
             deck.Draw();
 
@@ -619,7 +719,8 @@ public class GameManager : MonoBehaviour
         else
         {
             Debug.Log(
-                "Deck is empty. No replacement card drawn."
+                "Deck is empty. " +
+                "No replacement card drawn."
             );
         }
 
@@ -628,6 +729,7 @@ public class GameManager : MonoBehaviour
 
         boardManager.ClearHighlights();
 
+        // Player continues their normal turn.
         ShowPlayerHand(
             currentPlayerId
         );
@@ -716,8 +818,6 @@ public class GameManager : MonoBehaviour
                     $"{totalSequences} total Sequence(s)."
                 );
 
-                // NEW
-                // Immediately update the counters.
                 UpdateGameStatusUI();
 
                 int sequencesNeeded =
@@ -756,7 +856,8 @@ public class GameManager : MonoBehaviour
         else
         {
             Debug.Log(
-                "Deck is empty. No replacement card drawn."
+                "Deck is empty. " +
+                "No replacement card drawn."
             );
         }
 
@@ -785,6 +886,7 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        // Turn order is based ONLY on SeatIndex.
         int nextSeat =
             currentPlayer.SeatIndex + 1;
 
@@ -803,7 +905,8 @@ public class GameManager : MonoBehaviour
         if (nextPlayer == null)
         {
             Debug.LogError(
-                $"No player found in Seat {nextSeat}."
+                $"No player found in Seat " +
+                $"{nextSeat}."
             );
 
             return;
@@ -823,7 +926,6 @@ public class GameManager : MonoBehaviour
             currentPlayerId
         );
 
-        // NEW
         UpdateGameStatusUI();
 
         Debug.Log(
@@ -839,7 +941,8 @@ public class GameManager : MonoBehaviour
 
     private int GetSequencesNeededToWin()
     {
-        if (teamCount == 3)
+        if (sessionConfig != null &&
+            sessionConfig.TeamCount == 3)
         {
             return 1;
         }
@@ -870,7 +973,6 @@ public class GameManager : MonoBehaviour
             false
         );
 
-        // NEW
         if (gameStatusUI != null)
         {
             gameStatusUI.ShowWinner(
@@ -918,54 +1020,12 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
-    // PLAYER COUNT VALIDATION
-    // =========================================================
-
-    private bool IsSupportedPlayerCount(
-        int count)
-    {
-        return
-            count == 2 ||
-            count == 3 ||
-            count == 4 ||
-            count == 6 ||
-            count == 8 ||
-            count == 9 ||
-            count == 10 ||
-            count == 12;
-    }
-
-    // =========================================================
-    // TEAM SETUP VALIDATION
-    // =========================================================
-
-    private bool IsSupportedTeamSetup(
-        int players,
-        int teams)
-    {
-        if (teams != 2 &&
-            teams != 3)
-        {
-            return false;
-        }
-
-        if (players % teams != 0)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-
-
-    // =========================================================
     // DEBUG / DEVELOPMENT TESTING
     // =========================================================
 
     public void DebugCreateSequenceForCurrentTeam()
     {
-    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 
         if (gameOver)
         {
@@ -992,9 +1052,10 @@ public class GameManager : MonoBehaviour
             currentPlayer.TeamId;
 
         int created =
-            boardManager.DebugCreateNextSequenceForTeam(
-                teamId
-            );
+            boardManager
+                .DebugCreateNextSequenceForTeam(
+                    teamId
+                );
 
         if (created <= 0)
         {
@@ -1006,7 +1067,6 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        // Update on-screen counter.
         UpdateGameStatusUI();
 
         int totalSequences =
@@ -1030,6 +1090,6 @@ public class GameManager : MonoBehaviour
             );
         }
 
-    #endif
+#endif
     }
 }
