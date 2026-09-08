@@ -1278,6 +1278,7 @@ GameObject:
   - component: {fileID: 532031806}
   - component: {fileID: 532031808}
   - component: {fileID: 532031807}
+  - component: {fileID: 532031809}
   m_Layer: 5
   m_Name: LobbyPanel
   m_TagString: Untagged
@@ -1347,6 +1348,29 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 532031805}
   m_CullTransparentMesh: 1
+--- !u!114 &532031809
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 532031805}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7364589f3310e5d4180b24a3f7ffca0f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  lobbyManager: {fileID: 1230265247}
+  lobbyPanel: {fileID: 532031805}
+  boardPanel: {fileID: 7393643236964312922}
+  handPanel: {fileID: 1374438954}
+  gameStatusPanel: {fileID: 1342819698}
+  playerCountDropdown: {fileID: 1858057627}
+  teamCountDropdown: {fileID: 256415749}
+  playerListContent: {fileID: 330636603}
+  playerSlotPrefab: {fileID: 5410556532842203466, guid: 2a312bb9c11fbe54697d713596665a12, type: 3}
+  lobbyMessageText: {fileID: 1648243334}
+  startGameButton: {fileID: 1632614765}
 --- !u!1 &596058000
 GameObject:
   m_ObjectHideFlags: 0
@@ -4422,9 +4446,9 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: -220}
   m_SizeDelta: {x: 160, y: 30}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_Pivot: {x: 0.5, y: 0.5000006}
 --- !u!114 &1632614765
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4541,7 +4565,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: -154}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1648243334
@@ -4564,10 +4588,10 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: New Text
+  m_text: Welcome
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: dc36b3fdc14f47ebb36fd484a67e268a, type: 2}
+  m_sharedMaterial: {fileID: 2140032, guid: dc36b3fdc14f47ebb36fd484a67e268a, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -4598,7 +4622,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
-  m_HorizontalAlignment: 1
+  m_HorizontalAlignment: 2
   m_VerticalAlignment: 256
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -4991,8 +5015,8 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1512964898}
   m_HandleRect: {fileID: 1512964897}
   m_Direction: 0
-  m_Value: 1
-  m_Size: 1
+  m_Value: 0
+  m_Size: 0.9999999
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:

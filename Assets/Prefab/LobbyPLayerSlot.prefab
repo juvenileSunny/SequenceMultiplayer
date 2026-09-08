@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 3696003782565413545}
   - component: {fileID: 976896343753352934}
   - component: {fileID: 1934879654076404147}
+  - component: {fileID: 5410556532842203466}
   m_Layer: 5
   m_Name: LobbyPLayerSlot
   m_TagString: Untagged
@@ -42,7 +43,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: -220.5}
-  m_SizeDelta: {x: 0, y: 6}
+  m_SizeDelta: {x: 0, y: 60}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &7316550800751606313
 CanvasRenderer:
@@ -128,6 +129,24 @@ MonoBehaviour:
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &5410556532842203466
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 55185515558185947}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b696a184da7ee346888c17567eafeca, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playerNameText: {fileID: 7078752524826398382}
+  seatDropdown: {fileID: 6813432572257069254}
+  teamText: {fileID: 534467268219710602}
+  readyStatusText: {fileID: 6794550915919626542}
+  readyButton: {fileID: 8149512593625654327}
+  readyButtonText: {fileID: 8851535268436149509}
 --- !u!1 &1004496253145942046
 GameObject:
   m_ObjectHideFlags: 0
