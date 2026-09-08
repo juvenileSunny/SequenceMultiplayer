@@ -23,8 +23,9 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private TMP_Dropdown teamCountDropdown;
 
     [Header("Player List")]
-    [SerializeField] private Transform playerListContent;
+    [SerializeField] private RectTransform playerListContent;
     [SerializeField] private LobbyPlayerSlotUI playerSlotPrefab;
+    [SerializeField] private GridLayoutGroup playerGridLayout;
 
     [Header("Status")]
     [SerializeField] private TMP_Text lobbyMessageText;
@@ -154,15 +155,94 @@ public class LobbyUI : MonoBehaviour
 
         CreateLocalLobbyPlayers();
 
+        // NEW
+        ApplyPlayerGridLayout(
+            playerCount
+        );
+
         RebuildPlayerRows();
 
         RefreshLobbyUI();
     }
 
     // =========================================================
+    // AUTOMATIC PLAYER GRID
+    // =========================================================
+
+    private void ApplyPlayerGridLayout(
+        int playerCount)
+    {
+        if (playerGridLayout == null ||
+            playerListContent == null)
+        {
+            return;
+        }
+
+        // -----------------------------------------------------
+        // COLUMN COUNT
+        //
+        // 2–6 players  = 1 column
+        // 8–12 players = 2 columns
+        // -----------------------------------------------------
+
+        int columnCount =
+            playerCount <= 6
+                ? 1
+                : 2;
+
+        playerGridLayout.constraint =
+            GridLayoutGroup.Constraint.FixedColumnCount;
+
+        playerGridLayout.constraintCount =
+            columnCount;
+
+        // Force Unity to calculate the current UI size.
+        Canvas.ForceUpdateCanvases();
+
+        float availableWidth =
+            playerListContent.rect.width;
+
+        // Fallback to parent width if needed.
+        if (availableWidth <= 1f &&
+            playerListContent.parent
+                is RectTransform parentRect)
+        {
+            availableWidth =
+                parentRect.rect.width;
+        }
+
+        float horizontalPadding =
+            playerGridLayout.padding.left +
+            playerGridLayout.padding.right;
+
+        float totalSpacing =
+            playerGridLayout.spacing.x *
+            (columnCount - 1);
+
+        float usableWidth =
+            availableWidth -
+            horizontalPadding -
+            totalSpacing;
+
+        float cellWidth =
+            usableWidth /
+            columnCount;
+
+        playerGridLayout.cellSize =
+            new Vector2(
+                cellWidth,
+                65f
+            );
+
+        Debug.Log(
+            $"Lobby grid: {playerCount} players, " +
+            $"{columnCount} column(s), " +
+            $"cell width {cellWidth:F1}."
+        );
+    }
+
+    // =========================================================
     // CREATE TEMPORARY LOCAL LOBBY PLAYERS
-    //
-    // Later networking will replace this.
     // =========================================================
 
     private void CreateLocalLobbyPlayers()
@@ -238,7 +318,6 @@ public class LobbyUI : MonoBehaviour
         if (playerListContent == null)
             return;
 
-        // Also clean any leftover generated children.
         for (int i =
                  playerListContent.childCount - 1;
              i >= 0;
@@ -313,7 +392,6 @@ public class LobbyUI : MonoBehaviour
         if (!started)
         {
             RefreshLobbyUI();
-
             return;
         }
 
@@ -321,7 +399,7 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // PLAYER COUNT DROPDOWN
+    // PLAYER COUNT
     // =========================================================
 
     private int GetSelectedPlayerCount()
@@ -347,7 +425,7 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // TEAM COUNT DROPDOWN
+    // TEAM COUNT
     // =========================================================
 
     private int GetSelectedTeamCount()
