@@ -941,15 +941,65 @@ public class GameManager : MonoBehaviour
 
     private int GetSequencesNeededToWin()
     {
-        if (sessionConfig != null &&
-            sessionConfig.TeamCount == 3)
+        if (sessionConfig == null)
         {
-            return 1;
+            Debug.LogWarning(
+                "No GameSessionConfig found. Defaulting to 2 sequences."
+            );
+
+            return 2;
         }
 
-        return 2;
-    }
+        int players = sessionConfig.PlayerCount;
+        int teams = sessionConfig.TeamCount;
 
+        // =========================================================
+        // 2 TEAM GAMES
+        // =========================================================
+
+        if (teams == 2)
+        {
+            switch (players)
+            {
+                case 2:
+                case 4:
+                case 6:
+                    return 3;
+
+                case 8:
+                case 10:
+                case 12:
+                    return 2;
+            }
+        }
+
+        // =========================================================
+        // 3 TEAM GAMES
+        // =========================================================
+
+        if (teams == 3)
+        {
+            switch (players)
+            {
+                case 3:
+                case 6:
+                    return 3;
+
+                case 9:
+                    return 2;
+
+                case 12:
+                    return 1;
+            }
+        }
+
+        Debug.LogError(
+            $"Unsupported win-condition configuration: " +
+            $"{players} players / {teams} teams."
+        );
+
+        return int.MaxValue;
+    }
     // =========================================================
     // GAME OVER
     // =========================================================
@@ -1023,14 +1073,22 @@ public class GameManager : MonoBehaviour
     // DEBUG / DEVELOPMENT TESTING
     // =========================================================
 
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
     public void DebugCreateSequenceForCurrentTeam()
     {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-
         if (gameOver)
         {
-            Debug.LogWarning(
+            Debug.Log(
                 "DEBUG: Game is already over."
+            );
+
+            return;
+        }
+
+        if (boardManager == null)
+        {
+            Debug.LogWarning(
+                "DEBUG: BoardManager is missing."
             );
 
             return;
@@ -1041,8 +1099,8 @@ public class GameManager : MonoBehaviour
 
         if (currentPlayer == null)
         {
-            Debug.LogError(
-                "DEBUG: Current player not found."
+            Debug.LogWarning(
+                "DEBUG: There is no current player."
             );
 
             return;
@@ -1051,45 +1109,41 @@ public class GameManager : MonoBehaviour
         int teamId =
             currentPlayer.TeamId;
 
-        int created =
-            boardManager
-                .DebugCreateNextSequenceForTeam(
-                    teamId
-                );
-
-        if (created <= 0)
-        {
-            Debug.LogWarning(
-                $"DEBUG: No new Sequence created " +
-                $"for Team {teamId}."
-            );
-
-            return;
-        }
-
-        UpdateGameStatusUI();
-
-        int totalSequences =
+        int beforeCount =
             boardManager.GetSequenceCount(
                 teamId
             );
 
-        Debug.LogWarning(
-            $"DEBUG: Team {teamId} now has " +
-            $"{totalSequences} Sequence(s)."
+        // This method returns void.
+        boardManager.DebugCreateNextSequenceForTeam(
+            teamId
         );
+
+        int sequenceCount =
+            boardManager.GetSequenceCount(
+                teamId
+            );
+
+        int created =
+            sequenceCount - beforeCount;
 
         int sequencesNeeded =
             GetSequencesNeededToWin();
 
-        if (totalSequences >=
-            sequencesNeeded)
+        Debug.Log(
+            $"DEBUG: Team {teamId} created " +
+            $"{created} Sequence(s). " +
+            $"Total = {sequenceCount}/{sequencesNeeded}."
+        );
+
+        UpdateGameStatusUI();
+
+        if (sequenceCount >= sequencesNeeded)
         {
             EndGame(
                 teamId
             );
         }
-
-#endif
     }
+    #endif
 }

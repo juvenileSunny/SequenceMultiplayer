@@ -5,35 +5,30 @@ using UnityEngine.UI;
 
 public class LobbyPlayerSlotUI : MonoBehaviour
 {
-    // =========================================================
-    // UI REFERENCES
-    // =========================================================
-
-    [Header("Player")]
+    [Header("UI")]
     [SerializeField] private TMP_Text playerNameText;
-
-    [Header("Seat")]
     [SerializeField] private TMP_Dropdown seatDropdown;
-
-    [Header("Team")]
     [SerializeField] private TMP_Text teamText;
-
-    [Header("Ready")]
     [SerializeField] private TMP_Text readyStatusText;
     [SerializeField] private Button readyButton;
     [SerializeField] private TMP_Text readyButtonText;
 
-    // =========================================================
-    // DATA
-    // =========================================================
-
     private LobbyManager lobbyManager;
 
     private int playerId = -1;
-
     private bool initialized = false;
-
     private bool suppressCallbacks = false;
+
+    // Maps dropdown index -> actual SeatIndex.
+    //
+    // Example:
+    // dropdown index 0 = -1 (NO SEAT)
+    // dropdown index 1 = Seat 1
+    // dropdown index 2 = Seat 4
+    //
+    // This is required because occupied seats may be missing.
+    private readonly List<int> seatOptions =
+        new List<int>();
 
     // =========================================================
     // UNITY
@@ -75,7 +70,7 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (lobbyManager != null)
         {
             lobbyManager.OnLobbyChanged -=
-                Refresh;
+                HandleLobbyChanged;
         }
     }
 
@@ -90,32 +85,29 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (lobbyManager != null)
         {
             lobbyManager.OnLobbyChanged -=
-                Refresh;
+                HandleLobbyChanged;
         }
 
-        lobbyManager =
-            manager;
+        lobbyManager = manager;
+        playerId = newPlayerId;
 
-        playerId =
-            newPlayerId;
-
-        if (lobbyManager == null)
+        if (lobbyManager != null)
         {
-            Debug.LogError(
-                "LobbyPlayerSlotUI received a null LobbyManager."
-            );
-
-            return;
+            lobbyManager.OnLobbyChanged +=
+                HandleLobbyChanged;
         }
 
-        lobbyManager.OnLobbyChanged +=
-            Refresh;
+        initialized = true;
 
-        BuildSeatDropdown();
+        Refresh();
+    }
 
-        initialized =
-            true;
+    // =========================================================
+    // LOBBY CHANGED
+    // =========================================================
 
+    private void HandleLobbyChanged()
+    {
         Refresh();
     }
 
@@ -123,7 +115,8 @@ public class LobbyPlayerSlotUI : MonoBehaviour
     // BUILD SEAT DROPDOWN
     // =========================================================
 
-    private void BuildSeatDropdown()
+    private void BuildSeatDropdown(
+        LobbyPlayerData currentPlayer)
     {
         if (seatDropdown == null ||
             lobbyManager == null)
@@ -131,42 +124,95 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             return;
         }
 
-        suppressCallbacks =
-            true;
+        suppressCallbacks = true;
 
         seatDropdown.ClearOptions();
+        seatOptions.Clear();
 
-        List<string> options =
+        List<string> labels =
             new List<string>();
 
-        options.Add(
-            "NO SEAT"
-        );
+        // -----------------------------------------------------
+        // NO SEAT
+        // -----------------------------------------------------
 
-        for (int seat = 1;
-             seat <= lobbyManager.PlayerCount;
-             seat++)
+        labels.Add("NO SEAT");
+        seatOptions.Add(-1);
+
+        // -----------------------------------------------------
+        // AVAILABLE SEATS
+        // -----------------------------------------------------
+
+        for (int seatIndex = 1;
+             seatIndex <= lobbyManager.PlayerCount;
+             seatIndex++)
         {
-            options.Add(
-                $"SEAT {seat}"
+            LobbyPlayerData occupant =
+                lobbyManager.GetPlayerInSeat(
+                    seatIndex
+                );
+
+            bool seatIsFree =
+                occupant == null;
+
+            bool seatBelongsToThisPlayer =
+                occupant != null &&
+                occupant.PlayerId == playerId;
+
+            // Only show:
+            // 1. Free seats
+            // 2. This player's currently occupied seat
+            if (!seatIsFree &&
+                !seatBelongsToThisPlayer)
+            {
+                continue;
+            }
+
+            labels.Add(
+                $"SEAT {seatIndex}"
+            );
+
+            seatOptions.Add(
+                seatIndex
             );
         }
 
         seatDropdown.AddOptions(
-            options
+            labels
         );
 
-        seatDropdown.value =
-            0;
+        // -----------------------------------------------------
+        // SELECT CURRENT SEAT
+        // -----------------------------------------------------
+
+        int selectedDropdownIndex = 0;
+
+        if (currentPlayer != null &&
+            currentPlayer.SeatIndex > 0)
+        {
+            int foundIndex =
+                seatOptions.IndexOf(
+                    currentPlayer.SeatIndex
+                );
+
+            if (foundIndex >= 0)
+            {
+                selectedDropdownIndex =
+                    foundIndex;
+            }
+        }
+
+        seatDropdown.SetValueWithoutNotify(
+            selectedDropdownIndex
+        );
 
         seatDropdown.RefreshShownValue();
 
-        suppressCallbacks =
-            false;
+        suppressCallbacks = false;
     }
 
     // =========================================================
-    // REFRESH UI
+    // REFRESH
     // =========================================================
 
     public void Refresh()
@@ -183,9 +229,16 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             );
 
         if (player == null)
-        {
             return;
-        }
+
+        // IMPORTANT:
+        // Rebuild every time lobby state changes.
+        //
+        // This causes newly occupied seats to disappear
+        // immediately from everyone else's dropdown.
+        BuildSeatDropdown(
+            player
+        );
 
         // -----------------------------------------------------
         // PLAYER NAME
@@ -193,28 +246,17 @@ public class LobbyPlayerSlotUI : MonoBehaviour
 
         if (playerNameText != null)
         {
-            playerNameText.text =
-                player.DisplayName;
-        }
-
-        // -----------------------------------------------------
-        // SEAT
-        // -----------------------------------------------------
-
-        if (seatDropdown != null)
-        {
-            suppressCallbacks =
-                true;
-
-            seatDropdown.value =
-                player.HasSeat
-                    ? player.SeatIndex
-                    : 0;
-
-            seatDropdown.RefreshShownValue();
-
-            suppressCallbacks =
-                false;
+            if (!string.IsNullOrWhiteSpace(
+                    player.DisplayName))
+            {
+                playerNameText.text =
+                    player.DisplayName.ToUpper();
+            }
+            else
+            {
+                playerNameText.text =
+                    $"PLAYER {player.PlayerId}";
+            }
         }
 
         // -----------------------------------------------------
@@ -245,11 +287,14 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         // READY BUTTON
         // -----------------------------------------------------
 
+        bool hasValidSeat =
+            player.SeatIndex > 0 &&
+            player.TeamId > 0;
+
         if (readyButton != null)
         {
             readyButton.interactable =
-                player.HasSeat &&
-                player.HasTeam;
+                hasValidSeat;
         }
 
         if (readyButtonText != null)
@@ -266,7 +311,7 @@ public class LobbyPlayerSlotUI : MonoBehaviour
     // =========================================================
 
     private void HandleSeatChanged(
-        int optionIndex)
+        int dropdownIndex)
     {
         if (suppressCallbacks)
             return;
@@ -277,8 +322,22 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             return;
         }
 
-        // Option 0 = NO SEAT
-        if (optionIndex == 0)
+        if (dropdownIndex < 0 ||
+            dropdownIndex >= seatOptions.Count)
+        {
+            return;
+        }
+
+        int selectedSeat =
+            seatOptions[
+                dropdownIndex
+            ];
+
+        // -----------------------------------------------------
+        // NO SEAT
+        // -----------------------------------------------------
+
+        if (selectedSeat < 0)
         {
             lobbyManager.ClearPlayerSeat(
                 playerId
@@ -287,25 +346,23 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             return;
         }
 
-        // Dropdown option index matches seat number:
-        //
-        // 0 = NO SEAT
-        // 1 = SEAT 1
-        // 2 = SEAT 2
-        // ...
-        int requestedSeat =
-            optionIndex;
+        // -----------------------------------------------------
+        // ASSIGN SEAT
+        // -----------------------------------------------------
 
         bool success =
             lobbyManager.TryAssignSeat(
                 playerId,
-                requestedSeat
+                selectedSeat
             );
 
-        // If the seat was already occupied,
-        // return the dropdown to the actual current seat.
         if (!success)
         {
+            Debug.LogWarning(
+                $"Player {playerId} could not take " +
+                $"Seat {selectedSeat}."
+            );
+
             Refresh();
         }
     }
@@ -329,6 +386,12 @@ public class LobbyPlayerSlotUI : MonoBehaviour
 
         if (player == null)
             return;
+
+        if (player.SeatIndex <= 0 ||
+            player.TeamId <= 0)
+        {
+            return;
+        }
 
         lobbyManager.SetPlayerReady(
             playerId,

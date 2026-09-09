@@ -1093,128 +1093,220 @@ public class BoardManager : MonoBehaviour
     // DEBUG / DEVELOPMENT TESTING
     // =========================================================
 
-    public int DebugCreateNextSequenceForTeam(
-        int teamId)
-    {
     #if UNITY_EDITOR || DEVELOPMENT_BUILD
-
+    public void DebugCreateNextSequenceForTeam(int teamId)
+    {
         if (board == null)
-            return 0;
+            return;
 
         if (teamId <= 0)
-            return 0;
+            return;
 
-        int existingCount =
+        int currentSequenceCount =
             GetSequenceCount(teamId);
 
-        // =====================================================
-        // FIRST DEBUG SEQUENCE
+        int[,] positions;
+        int lastRow;
+        int lastColumn;
+
+        // =========================================================
+        // SEQUENCE 1
         //
-        // Uses top-left corner:
+        // Top-left corner:
         //
-        // [0,0] = wild corner
+        // [0,0] = free corner
         // [0,1]
         // [0,2]
         // [0,3]
         // [0,4]
-        // =====================================================
+        // =========================================================
 
-        if (existingCount == 0)
+        if (currentSequenceCount == 0)
         {
-            for (int column = 1;
-                column <= 4;
-                column++)
+            positions = new int[,]
             {
-                DebugSetCellForTeam(
-                    0,
-                    column,
-                    teamId
-                );
-            }
+                { 0, 1 },
+                { 0, 2 },
+                { 0, 3 },
+                { 0, 4 }
+            };
 
-            BoardCell lastCell =
-                board.GetCell(
-                    0,
-                    4
-                );
-
-            int created =
-                RegisterNewSequences(
-                    teamId,
-                    lastCell
-                );
-
-            Debug.LogWarning(
-                $"DEBUG: Created first Sequence " +
-                $"for Team {teamId}."
-            );
-
-            return created;
+            lastRow = 0;
+            lastColumn = 4;
         }
 
-        // =====================================================
-        // SECOND DEBUG SEQUENCE
+        // =========================================================
+        // SEQUENCE 2
         //
-        // Uses same top-left wild corner,
-        // but goes vertically:
+        // Same top-left corner vertically:
         //
-        // [0,0] = wild corner
+        // [0,0] = free corner
         // [1,0]
         // [2,0]
         // [3,0]
         // [4,0]
-        //
-        // This overlaps the first Sequence by
-        // only one cell: the corner.
-        // =====================================================
+        // =========================================================
 
-        if (existingCount == 1)
+        else if (currentSequenceCount == 1)
         {
-            for (int row = 1;
-                row <= 4;
-                row++)
+            positions = new int[,]
             {
-                DebugSetCellForTeam(
-                    row,
-                    0,
-                    teamId
-                );
-            }
+                { 1, 0 },
+                { 2, 0 },
+                { 3, 0 },
+                { 4, 0 }
+            };
 
-            BoardCell lastCell =
-                board.GetCell(
-                    4,
-                    0
-                );
-
-            int created =
-                RegisterNewSequences(
-                    teamId,
-                    lastCell
-                );
-
-            Debug.LogWarning(
-                $"DEBUG: Created second Sequence " +
-                $"for Team {teamId}."
-            );
-
-            return created;
+            lastRow = 4;
+            lastColumn = 0;
         }
 
-        Debug.LogWarning(
-            $"DEBUG: Team {teamId} already has " +
-            $"{existingCount} Sequence(s)."
+        // =========================================================
+        // SEQUENCE 3
+        //
+        // Bottom-left corner:
+        //
+        // [9,0] = free corner
+        // [9,1]
+        // [9,2]
+        // [9,3]
+        // [9,4]
+        //
+        // This is separate from the first two Sequences.
+        // =========================================================
+
+        else if (currentSequenceCount == 2)
+        {
+            positions = new int[,]
+            {
+                { 9, 1 },
+                { 9, 2 },
+                { 9, 3 },
+                { 9, 4 }
+            };
+
+            lastRow = 9;
+            lastColumn = 4;
+        }
+
+        // Already created all three debug Sequences.
+        else
+        {
+            Debug.Log(
+                $"DEBUG: Team {teamId} already has " +
+                $"{currentSequenceCount} Sequence(s)."
+            );
+
+            return;
+        }
+
+        // =========================================================
+        // VALIDATE CELLS FIRST
+        // =========================================================
+
+        for (int i = 0;
+            i < positions.GetLength(0);
+            i++)
+        {
+            int row =
+                positions[i, 0];
+
+            int column =
+                positions[i, 1];
+
+            BoardCell cell =
+                board.GetCell(
+                    row,
+                    column
+                );
+
+            if (cell == null)
+            {
+                Debug.LogWarning(
+                    $"DEBUG: Missing cell [{row},{column}]."
+                );
+
+                return;
+            }
+
+            // Don't overwrite another team's chip.
+            if (cell.IsOccupied &&
+                cell.OwnerTeamId != teamId)
+            {
+                Debug.LogWarning(
+                    $"DEBUG: Cannot create Sequence because " +
+                    $"[{row},{column}] belongs to Team " +
+                    $"{cell.OwnerTeamId}."
+                );
+
+                return;
+            }
+        }
+
+        // =========================================================
+        // PLACE DEBUG TEAM CHIPS
+        // =========================================================
+
+        for (int i = 0;
+            i < positions.GetLength(0);
+            i++)
+        {
+            int row =
+                positions[i, 0];
+
+            int column =
+                positions[i, 1];
+
+            BoardCell cell =
+                board.GetCell(
+                    row,
+                    column
+                );
+
+            cell.SetOwnerTeam(
+                teamId
+            );
+
+            BoardCellView view =
+                cellViews[
+                    row,
+                    column
+                ];
+
+            if (view != null)
+            {
+                view.UpdateVisual();
+            }
+        }
+
+        // =========================================================
+        // REGISTER
+        // =========================================================
+
+        BoardCell lastCell =
+            board.GetCell(
+                lastRow,
+                lastColumn
+            );
+
+        // Count before registration.
+        int created =
+            RegisterNewSequences(
+                teamId,
+                lastCell
+            );
+
+        int total =
+            GetSequenceCount(
+                teamId
+            );
+
+        Debug.Log(
+            $"DEBUG: Created {created} new Sequence(s) " +
+            $"for Team {teamId}. Total = {total}."
         );
-
-        return 0;
-
-    #else
-
-        return 0;
-
-    #endif
     }
-
+    #endif
     private void DebugSetCellForTeam(
         int row,
         int column,
