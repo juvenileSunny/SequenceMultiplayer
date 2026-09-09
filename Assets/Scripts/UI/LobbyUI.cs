@@ -33,10 +33,6 @@ public class LobbyUI : MonoBehaviour
     [Header("Buttons")]
     [SerializeField] private Button startGameButton;
 
-    // =========================================================
-    // GENERATED ROWS
-    // =========================================================
-
     private readonly List<LobbyPlayerSlotUI> spawnedSlots =
         new List<LobbyPlayerSlotUI>();
 
@@ -48,21 +44,20 @@ public class LobbyUI : MonoBehaviour
     {
         if (lobbyManager != null)
         {
-            lobbyManager.OnLobbyChanged +=
-                RefreshLobbyUI;
+            lobbyManager.OnLobbyChanged += RefreshLobbyUI;
         }
 
         if (playerCountDropdown != null)
         {
             playerCountDropdown.onValueChanged.AddListener(
-                HandleLobbySettingsChanged
+                HandlePlayerCountChanged
             );
         }
 
         if (teamCountDropdown != null)
         {
             teamCountDropdown.onValueChanged.AddListener(
-                HandleLobbySettingsChanged
+                HandleTeamCountChanged
             );
         }
 
@@ -78,6 +73,10 @@ public class LobbyUI : MonoBehaviour
     {
         ShowLobby();
 
+        // Make sure the team dropdown is valid
+        // before creating the first lobby.
+        UpdateValidTeamOptions();
+
         ConfigureLobbyFromDropdowns();
     }
 
@@ -85,21 +84,20 @@ public class LobbyUI : MonoBehaviour
     {
         if (lobbyManager != null)
         {
-            lobbyManager.OnLobbyChanged -=
-                RefreshLobbyUI;
+            lobbyManager.OnLobbyChanged -= RefreshLobbyUI;
         }
 
         if (playerCountDropdown != null)
         {
             playerCountDropdown.onValueChanged.RemoveListener(
-                HandleLobbySettingsChanged
+                HandlePlayerCountChanged
             );
         }
 
         if (teamCountDropdown != null)
         {
             teamCountDropdown.onValueChanged.RemoveListener(
-                HandleLobbySettingsChanged
+                HandleTeamCountChanged
             );
         }
 
@@ -112,13 +110,93 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // DROPDOWN CHANGED
+    // PLAYER COUNT CHANGED
     // =========================================================
 
-    private void HandleLobbySettingsChanged(
-        int ignoredValue)
+    private void HandlePlayerCountChanged(int ignoredValue)
+    {
+        // First rebuild the valid team choices.
+        UpdateValidTeamOptions();
+
+        // Then rebuild the lobby.
+        ConfigureLobbyFromDropdowns();
+    }
+
+    // =========================================================
+    // TEAM COUNT CHANGED
+    // =========================================================
+
+    private void HandleTeamCountChanged(int ignoredValue)
     {
         ConfigureLobbyFromDropdowns();
+    }
+
+    // =========================================================
+    // VALID TEAM OPTIONS
+    // =========================================================
+
+    private void UpdateValidTeamOptions()
+    {
+        if (playerCountDropdown == null ||
+            teamCountDropdown == null)
+        {
+            return;
+        }
+
+        int playerCount =
+            GetSelectedPlayerCount();
+
+        // Remember the currently selected team count
+        // if possible.
+        int previousTeamCount =
+            GetSelectedTeamCount();
+
+        List<int> validTeamCounts =
+            new List<int>();
+
+        // Two-team games require equal team sizes.
+        if (playerCount % 2 == 0)
+        {
+            validTeamCounts.Add(2);
+        }
+
+        // Three-team games require equal team sizes.
+        if (playerCount % 3 == 0)
+        {
+            validTeamCounts.Add(3);
+        }
+
+        List<string> options =
+            new List<string>();
+
+        foreach (int teamCount in validTeamCounts)
+        {
+            options.Add($"{teamCount} TEAMS");
+        }
+
+        teamCountDropdown.ClearOptions();
+        teamCountDropdown.AddOptions(options);
+
+        // Try to preserve the previous choice.
+        int selectedIndex = 0;
+
+        for (int i = 0;
+             i < validTeamCounts.Count;
+             i++)
+        {
+            if (validTeamCounts[i] ==
+                previousTeamCount)
+            {
+                selectedIndex = i;
+                break;
+            }
+        }
+
+        teamCountDropdown.SetValueWithoutNotify(
+            selectedIndex
+        );
+
+        teamCountDropdown.RefreshShownValue();
     }
 
     // =========================================================
@@ -155,7 +233,6 @@ public class LobbyUI : MonoBehaviour
 
         CreateLocalLobbyPlayers();
 
-        // NEW
         ApplyPlayerGridLayout(
             playerCount
         );
@@ -166,7 +243,7 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // AUTOMATIC PLAYER GRID
+    // PLAYER GRID
     // =========================================================
 
     private void ApplyPlayerGridLayout(
@@ -177,13 +254,6 @@ public class LobbyUI : MonoBehaviour
         {
             return;
         }
-
-        // -----------------------------------------------------
-        // COLUMN COUNT
-        //
-        // 2–6 players  = 1 column
-        // 8–12 players = 2 columns
-        // -----------------------------------------------------
 
         int columnCount =
             playerCount <= 6
@@ -196,13 +266,11 @@ public class LobbyUI : MonoBehaviour
         playerGridLayout.constraintCount =
             columnCount;
 
-        // Force Unity to calculate the current UI size.
         Canvas.ForceUpdateCanvases();
 
         float availableWidth =
             playerListContent.rect.width;
 
-        // Fallback to parent width if needed.
         if (availableWidth <= 1f &&
             playerListContent.parent
                 is RectTransform parentRect)
@@ -233,16 +301,10 @@ public class LobbyUI : MonoBehaviour
                 cellWidth,
                 65f
             );
-
-        Debug.Log(
-            $"Lobby grid: {playerCount} players, " +
-            $"{columnCount} column(s), " +
-            $"cell width {cellWidth:F1}."
-        );
     }
 
     // =========================================================
-    // CREATE TEMPORARY LOCAL LOBBY PLAYERS
+    // LOCAL TEST PLAYERS
     // =========================================================
 
     private void CreateLocalLobbyPlayers()
@@ -262,7 +324,7 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // REBUILD PLAYER ROWS
+    // PLAYER ROWS
     // =========================================================
 
     private void RebuildPlayerRows()
@@ -290,15 +352,9 @@ public class LobbyUI : MonoBehaviour
                 player.PlayerId
             );
 
-            spawnedSlots.Add(
-                slot
-            );
+            spawnedSlots.Add(slot);
         }
     }
-
-    // =========================================================
-    // CLEAR PLAYER ROWS
-    // =========================================================
 
     private void ClearPlayerRows()
     {
@@ -307,9 +363,7 @@ public class LobbyUI : MonoBehaviour
         {
             if (slot != null)
             {
-                Destroy(
-                    slot.gameObject
-                );
+                Destroy(slot.gameObject);
             }
         }
 
@@ -326,9 +380,7 @@ public class LobbyUI : MonoBehaviour
             Transform child =
                 playerListContent.GetChild(i);
 
-            Destroy(
-                child.gameObject
-            );
+            Destroy(child.gameObject);
         }
     }
 
@@ -350,11 +402,9 @@ public class LobbyUI : MonoBehaviour
             }
         }
 
-        string errorMessage;
-
         bool canStart =
             lobbyManager.CanStartMatch(
-                out errorMessage
+                out string errorMessage
             );
 
         if (startGameButton != null)
@@ -412,11 +462,9 @@ public class LobbyUI : MonoBehaviour
                 playerCountDropdown.value
             ].text;
 
-        int result;
-
         if (int.TryParse(
                 selectedText,
-                out result))
+                out int result))
         {
             return result;
         }
@@ -430,8 +478,11 @@ public class LobbyUI : MonoBehaviour
 
     private int GetSelectedTeamCount()
     {
-        if (teamCountDropdown == null)
+        if (teamCountDropdown == null ||
+            teamCountDropdown.options.Count == 0)
+        {
             return 2;
+        }
 
         string selectedText =
             teamCountDropdown.options[
@@ -454,21 +505,14 @@ public class LobbyUI : MonoBehaviour
         if (lobbyMessageText == null)
             return;
 
-        if (string.IsNullOrWhiteSpace(
-                message))
-        {
-            lobbyMessageText.text =
-                "Waiting for players...";
-        }
-        else
-        {
-            lobbyMessageText.text =
-                message;
-        }
+        lobbyMessageText.text =
+            string.IsNullOrWhiteSpace(message)
+                ? "Waiting for players..."
+                : message;
     }
 
     // =========================================================
-    // SHOW LOBBY
+    // PANELS
     // =========================================================
 
     private void ShowLobby()
@@ -485,10 +529,6 @@ public class LobbyUI : MonoBehaviour
         if (gameStatusPanel != null)
             gameStatusPanel.SetActive(false);
     }
-
-    // =========================================================
-    // SHOW GAME
-    // =========================================================
 
     private void ShowGame()
     {
