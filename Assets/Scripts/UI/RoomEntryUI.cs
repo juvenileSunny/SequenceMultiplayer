@@ -13,6 +13,14 @@ public class RoomEntryUI : MonoBehaviour
     private RoomSessionContext roomSessionContext;
 
     // =========================================================
+    // NETWORKING
+    // =========================================================
+
+    [Header("Networking")]
+    [SerializeField]
+    private SequenceNetworkBootstrap networkBootstrap;
+
+    // =========================================================
     // PANELS
     // =========================================================
 
@@ -42,7 +50,9 @@ public class RoomEntryUI : MonoBehaviour
     // =========================================================
     // TEMPORARY LOCAL TEST IDENTITY
     //
-    // Later the network/server will assign PlayerId values.
+    // These IDs are temporary.
+    // Later the server will assign PlayerId values based
+    // on actual NGO client connections.
     // =========================================================
 
     [Header("Temporary Local Testing")]
@@ -126,29 +136,86 @@ public class RoomEntryUI : MonoBehaviour
 
     private void HandleCreateRoomClicked()
     {
-        if (roomSessionContext == null)
+        // -----------------------------------------------------
+        // 1. Validate network bootstrap
+        // -----------------------------------------------------
+
+        if (networkBootstrap == null)
         {
-            SetMessage(
-                "Room session is unavailable."
+            Debug.LogError(
+                "RoomEntryUI: SequenceNetworkBootstrap is missing."
             );
 
-            Debug.LogError(
-                "RoomEntryUI: RoomSessionContext is missing."
+            SetMessage(
+                "Networking is unavailable."
             );
 
             return;
         }
 
+        // -----------------------------------------------------
+        // 2. Validate session context BEFORE starting host
+        // -----------------------------------------------------
+
+        if (roomSessionContext == null)
+        {
+            Debug.LogError(
+                "RoomEntryUI: RoomSessionContext is missing."
+            );
+
+            SetMessage(
+                "Room session is unavailable."
+            );
+
+            return;
+        }
+
+        // -----------------------------------------------------
+        // 3. Start the REAL NGO host
+        //
+        // HOST =
+        // Server + local Client
+        // -----------------------------------------------------
+
+        bool hostStarted =
+            networkBootstrap.StartHost();
+
+        if (!hostStarted)
+        {
+            Debug.LogError(
+                "RoomEntryUI: Failed to start network host."
+            );
+
+            SetMessage(
+                "Could not create room."
+            );
+
+            return;
+        }
+
+        // -----------------------------------------------------
+        // 4. Generate temporary room code
+        //
+        // IMPORTANT:
+        // This room code does NOT perform real discovery yet.
+        // It is still temporary/local.
+        // -----------------------------------------------------
+
         string roomCode =
             GenerateTemporaryRoomCode();
 
         // -----------------------------------------------------
-        // IMPORTANT:
+        // 5. Configure our game session
         //
-        // RoomEntryUI does NOT store:
-        // isHost = true
+        // temporaryHostPlayerId is currently Player 1.
         //
-        // Instead the SESSION owns that information.
+        // Later:
+        //
+        // NGO ClientId
+        //      ↓
+        // PlayerId
+        //
+        // will replace this temporary assignment.
         // -----------------------------------------------------
 
         roomSessionContext.ConfigureAsHost(
@@ -156,8 +223,12 @@ public class RoomEntryUI : MonoBehaviour
             temporaryHostPlayerId
         );
 
+        // -----------------------------------------------------
+        // 6. Debug information
+        // -----------------------------------------------------
+
         Debug.Log(
-            $"TEMP ROOM CREATED: " +
+            $"ROOM CREATED: " +
             $"{roomSessionContext.RoomCode}"
         );
 
@@ -171,6 +242,10 @@ public class RoomEntryUI : MonoBehaviour
             $"{roomSessionContext.HostPlayerId}"
         );
 
+        // -----------------------------------------------------
+        // 7. Enter lobby
+        // -----------------------------------------------------
+
         OpenLobby();
     }
 
@@ -180,14 +255,31 @@ public class RoomEntryUI : MonoBehaviour
 
     private void HandleJoinRoomClicked()
     {
-        if (roomSessionContext == null)
+        // =========================================================
+        // VALIDATE REFERENCES
+        // =========================================================
+
+        if (networkBootstrap == null)
         {
-            SetMessage(
-                "Room session is unavailable."
+            Debug.LogError(
+                "RoomEntryUI: SequenceNetworkBootstrap is missing."
             );
 
+            SetMessage(
+                "Networking is unavailable."
+            );
+
+            return;
+        }
+
+        if (roomSessionContext == null)
+        {
             Debug.LogError(
                 "RoomEntryUI: RoomSessionContext is missing."
+            );
+
+            SetMessage(
+                "Room session is unavailable."
             );
 
             return;
@@ -195,6 +287,10 @@ public class RoomEntryUI : MonoBehaviour
 
         if (roomCodeInput == null)
             return;
+
+        // =========================================================
+        // READ ROOM CODE
+        // =========================================================
 
         string enteredCode =
             roomCodeInput.text
@@ -211,39 +307,84 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        // -----------------------------------------------------
-        // TEMPORARY LOCAL TESTING
-        //
-        // We currently pretend:
-        //
-        // Host   = Player 1
-        // Client = Player 2
-        //
-        // Later the HOST/SERVER will assign the real PlayerId.
-        // -----------------------------------------------------
+        // =========================================================
+        // BEGIN REAL NETWORK CONNECTION
+        // =========================================================
 
-        roomSessionContext.ConfigureAsClient(
-            enteredCode,
-            temporaryJoiningPlayerId,
-            temporaryHostPlayerId
+        SetMessage(
+            "Connecting to host..."
         );
 
-        Debug.Log(
-            $"TEMP JOIN ROOM: " +
-            $"{roomSessionContext.RoomCode}"
-        );
+        bool connectionStarted =
+            networkBootstrap.StartClient(
 
-        Debug.Log(
-            $"Local Player: " +
-            $"{roomSessionContext.LocalPlayerId}"
-        );
+                // =============================================
+                // CONNECTION SUCCESS
+                // =============================================
 
-        Debug.Log(
-            $"Host Player: " +
-            $"{roomSessionContext.HostPlayerId}"
-        );
+                () =>
+                {
+                    Debug.Log(
+                        "Network connection succeeded."
+                    );
 
-        OpenLobby();
+                    // -----------------------------------------
+                    // TEMPORARY GAME IDENTITY
+                    //
+                    // We still temporarily pretend:
+                    //
+                    // Host   = Player 1
+                    // Client = Player 2
+                    //
+                    // Later the SERVER will assign PlayerId.
+                    // -----------------------------------------
+
+                    roomSessionContext.ConfigureAsClient(
+                        enteredCode,
+                        temporaryJoiningPlayerId,
+                        temporaryHostPlayerId
+                    );
+
+                    Debug.Log(
+                        $"Joined network room: " +
+                        $"{enteredCode}"
+                    );
+
+                    Debug.Log(
+                        $"Local Player: " +
+                        $"{roomSessionContext.LocalPlayerId}"
+                    );
+
+                    Debug.Log(
+                        $"Host Player: " +
+                        $"{roomSessionContext.HostPlayerId}"
+                    );
+
+                    OpenLobby();
+                },
+
+                // =============================================
+                // CONNECTION FAILURE
+                // =============================================
+
+                (errorMessage) =>
+                {
+                    Debug.LogWarning(
+                        $"Join failed: {errorMessage}"
+                    );
+
+                    SetMessage(
+                        errorMessage
+                    );
+                }
+            );
+
+        if (!connectionStarted)
+        {
+            Debug.LogWarning(
+                "Client connection attempt could not start."
+            );
+        }
     }
 
     // =========================================================

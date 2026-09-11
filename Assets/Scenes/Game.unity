@@ -2863,6 +2863,74 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 605871961}
   m_CullTransparentMesh: 1
+--- !u!1 &641753822
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 641753824}
+  - component: {fileID: 641753823}
+  - component: {fileID: 641753825}
+  m_Layer: 0
+  m_Name: NetworkLobbyBridge
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &641753823
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  GlobalObjectIdHash: 2216513357
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+--- !u!4 &641753824
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 561.50385, y: 203.68286, z: 3.569353}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &641753825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f82e60fab606a843ad62220b117ce54, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  lobbyAuthority: {fileID: 1234614213}
+  lobbyManager: {fileID: 1230265247}
 --- !u!1 &670749231
 GameObject:
   m_ObjectHideFlags: 0
@@ -6752,11 +6820,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 1552829689}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a6921e13d6989dc408326ed40c0d0961, type: 3}
+  m_Script: {fileID: 11500000, guid: 3d225e6f8e826104291b473e4012b1da, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lobbyAuthority: {fileID: 1234614213}
-  roomSessionContext: {fileID: 1552829690}
+  networkLobbyBridge: {fileID: 641753825}
 --- !u!1 &1608696628
 GameObject:
   m_ObjectHideFlags: 0
@@ -8810,6 +8877,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   roomSessionContext: {fileID: 1552829690}
+  networkBootstrap: {fileID: 82398086}
   roomEntryPanel: {fileID: 1865555552}
   lobbyPanel: {fileID: 532031805}
   boardPanel: {fileID: 7393643236964312922}
@@ -9695,3 +9763,4 @@ SceneRoots:
   - {fileID: 1234614214}
   - {fileID: 1552829691}
   - {fileID: 82398089}
+  - {fileID: 641753824}
