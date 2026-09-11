@@ -5,6 +5,9 @@ public class LocalLobbyAuthority : MonoBehaviour
     [Header("Authoritative Lobby")]
     [SerializeField] private LobbyManager lobbyManager;
 
+    [Header("Session")]
+    [SerializeField] private RoomSessionContext roomSessionContext;
+
     // =========================================================
     // REQUEST SEAT
     // =========================================================
@@ -202,7 +205,115 @@ public class LocalLobbyAuthority : MonoBehaviour
                 : "Player is no longer ready."
         );
     }
+    // =========================================================
+    // START MATCH REQUEST
+    // =========================================================
 
+    public AuthorityResult HandleStartMatchRequest(
+        int senderPlayerId,
+        StartMatchRequest request)
+    {
+        // -----------------------------------------------------
+        // REQUEST
+        // -----------------------------------------------------
+
+        if (request == null)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.InvalidRequest,
+                "Start-match request was invalid."
+            );
+        }
+
+        // -----------------------------------------------------
+        // REQUIRED AUTHORITY REFERENCES
+        // -----------------------------------------------------
+
+        if (lobbyManager == null)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.LobbyNotAvailable,
+                "Lobby authority is unavailable."
+            );
+        }
+
+        if (roomSessionContext == null)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.RequestRejected,
+                "Room session is unavailable."
+            );
+        }
+
+        // -----------------------------------------------------
+        // PLAYER EXISTS
+        // -----------------------------------------------------
+
+        LobbyPlayerData sender =
+            lobbyManager.GetPlayer(
+                senderPlayerId
+            );
+
+        if (sender == null)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.InvalidPlayer,
+                "Player does not exist in this lobby."
+            );
+        }
+
+        // -----------------------------------------------------
+        // HOST AUTHORIZATION
+        // -----------------------------------------------------
+
+        if (senderPlayerId !=
+            roomSessionContext.HostPlayerId)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.NotHost,
+                "Only the host can start the match."
+            );
+        }
+
+        // -----------------------------------------------------
+        // VALIDATE LOBBY
+        // -----------------------------------------------------
+
+        bool canStart =
+            lobbyManager.CanStartMatch(
+                out string validationMessage
+            );
+
+        if (!canStart)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.MatchCannotStart,
+                string.IsNullOrWhiteSpace(
+                    validationMessage)
+                    ? "The lobby is not ready to start."
+                    : validationMessage
+            );
+        }
+
+        // -----------------------------------------------------
+        // AUTHORITATIVE START
+        // -----------------------------------------------------
+
+        bool started =
+            lobbyManager.StartMatch();
+
+        if (!started)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.MatchCannotStart,
+                "The match could not be started."
+            );
+        }
+
+        return AuthorityResult.Accepted(
+            "Match started by the host."
+        );
+    }
     // =========================================================
     // TEAM NAME
     // =========================================================

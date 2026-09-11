@@ -14,18 +14,14 @@ public class LobbyPlayerSlotUI : MonoBehaviour
     [SerializeField] private TMP_Text readyButtonText;
 
     private LobbyManager lobbyManager;
-
-    // NEW:
-    // UI sends requests through the authority instead of
-    // changing LobbyManager state directly.
-    private LocalLobbyAuthority lobbyAuthority;
+    private LobbyRequestGateway requestGateway;
+    private RoomSessionContext roomSessionContext;
 
     private int playerId = -1;
 
     private bool initialized = false;
     private bool suppressCallbacks = false;
 
-    // Maps dropdown option index to real SeatIndex.
     private readonly List<int> seatOptions =
         new List<int>();
 
@@ -71,6 +67,12 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             lobbyManager.OnLobbyChanged -=
                 HandleLobbyChanged;
         }
+
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged -=
+                HandleSessionChanged;
+        }
     }
 
     // =========================================================
@@ -79,7 +81,8 @@ public class LobbyPlayerSlotUI : MonoBehaviour
 
     public void Initialize(
         LobbyManager manager,
-        LocalLobbyAuthority authority,
+        LobbyRequestGateway gateway,
+        RoomSessionContext sessionContext,
         int newPlayerId)
     {
         if (lobbyManager != null)
@@ -88,9 +91,23 @@ public class LobbyPlayerSlotUI : MonoBehaviour
                 HandleLobbyChanged;
         }
 
-        lobbyManager = manager;
-        lobbyAuthority = authority;
-        playerId = newPlayerId;
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged -=
+                HandleSessionChanged;
+        }
+
+        lobbyManager =
+            manager;
+
+        requestGateway =
+            gateway;
+
+        roomSessionContext =
+            sessionContext;
+
+        playerId =
+            newPlayerId;
 
         if (lobbyManager != null)
         {
@@ -98,16 +115,28 @@ public class LobbyPlayerSlotUI : MonoBehaviour
                 HandleLobbyChanged;
         }
 
-        initialized = true;
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged +=
+                HandleSessionChanged;
+        }
+
+        initialized =
+            true;
 
         Refresh();
     }
 
     // =========================================================
-    // LOBBY CHANGED
+    // EVENTS
     // =========================================================
 
     private void HandleLobbyChanged()
+    {
+        Refresh();
+    }
+
+    private void HandleSessionChanged()
     {
         Refresh();
     }
@@ -125,7 +154,8 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             return;
         }
 
-        suppressCallbacks = true;
+        suppressCallbacks =
+            true;
 
         seatDropdown.ClearOptions();
         seatOptions.Clear();
@@ -133,16 +163,13 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         List<string> labels =
             new List<string>();
 
-        // -----------------------------------------------------
-        // NO SEAT
-        // -----------------------------------------------------
+        labels.Add(
+            "NO SEAT"
+        );
 
-        labels.Add("NO SEAT");
-        seatOptions.Add(-1);
-
-        // -----------------------------------------------------
-        // AVAILABLE SEATS
-        // -----------------------------------------------------
+        seatOptions.Add(
+            -1
+        );
 
         for (int seatIndex = 1;
              seatIndex <= lobbyManager.PlayerCount;
@@ -160,7 +187,6 @@ public class LobbyPlayerSlotUI : MonoBehaviour
                 occupant != null &&
                 occupant.PlayerId == playerId;
 
-            // Do not show seats occupied by another player.
             if (!seatIsFree &&
                 !seatBelongsToThisPlayer)
             {
@@ -180,11 +206,8 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             labels
         );
 
-        // -----------------------------------------------------
-        // CURRENT SELECTION
-        // -----------------------------------------------------
-
-        int selectedDropdownIndex = 0;
+        int selectedDropdownIndex =
+            0;
 
         if (currentPlayer != null &&
             currentPlayer.SeatIndex > 0)
@@ -207,7 +230,8 @@ public class LobbyPlayerSlotUI : MonoBehaviour
 
         seatDropdown.RefreshShownValue();
 
-        suppressCallbacks = false;
+        suppressCallbacks =
+            false;
     }
 
     // =========================================================
@@ -234,17 +258,41 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             player
         );
 
+        // =====================================================
+        // IS THIS THE PLAYER REPRESENTED BY THIS UNITY CLIENT?
+        // =====================================================
+
+        bool isLocalPlayerRow =
+            roomSessionContext != null &&
+            roomSessionContext.HasLocalPlayer &&
+            roomSessionContext.LocalPlayerId ==
+            playerId;
+
         // -----------------------------------------------------
         // PLAYER NAME
         // -----------------------------------------------------
 
         if (playerNameText != null)
         {
-            playerNameText.text =
+            string displayName =
                 !string.IsNullOrWhiteSpace(
                     player.DisplayName)
                     ? player.DisplayName.ToUpper()
                     : $"PLAYER {player.PlayerId}";
+
+            bool isHostPlayer =
+                roomSessionContext != null &&
+                roomSessionContext.HasHost &&
+                roomSessionContext.HostPlayerId ==
+                player.PlayerId;
+
+            if (isHostPlayer)
+            {
+                displayName += "  [HOST]";
+            }
+
+            playerNameText.text =
+                displayName;
         }
 
         // -----------------------------------------------------
@@ -272,7 +320,19 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         }
 
         // -----------------------------------------------------
-        // READY BUTTON
+        // SEAT CONTROL
+        // -----------------------------------------------------
+
+        if (seatDropdown != null)
+        {
+            // Only the local player may manipulate
+            // their own seat selector.
+            seatDropdown.interactable =
+                isLocalPlayerRow;
+        }
+
+        // -----------------------------------------------------
+        // READY CONTROL
         // -----------------------------------------------------
 
         bool hasValidSeat =
@@ -282,6 +342,7 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (readyButton != null)
         {
             readyButton.interactable =
+                isLocalPlayerRow &&
                 hasValidSeat;
         }
 
@@ -307,14 +368,18 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (!initialized)
             return;
 
-        if (lobbyAuthority == null)
+        if (!IsThisLocalPlayer())
+            return;
+
+        if (requestGateway == null)
         {
             Debug.LogError(
                 "LobbyPlayerSlotUI: " +
-                "LocalLobbyAuthority is missing."
+                "LobbyRequestGateway is missing."
             );
 
             Refresh();
+
             return;
         }
 
@@ -329,37 +394,38 @@ public class LobbyPlayerSlotUI : MonoBehaviour
                 dropdownIndex
             ];
 
-        // -----------------------------------------------------
-        // CREATE REQUEST
-        // -----------------------------------------------------
+        requestGateway.RequestSeat(
+            requestedSeat,
+            HandleSeatRequestCompleted
+        );
+    }
 
-        RequestSeatRequest request =
-            new RequestSeatRequest(
-                requestedSeat
+    // =========================================================
+    // SEAT RESULT
+    // =========================================================
+
+    private void HandleSeatRequestCompleted(
+        AuthorityResult result)
+    {
+        if (result == null)
+        {
+            Debug.LogWarning(
+                "Seat request returned no result."
             );
 
-        // -----------------------------------------------------
-        // SEND REQUEST TO AUTHORITY
-        // -----------------------------------------------------
+            Refresh();
 
-        AuthorityResult result =
-            lobbyAuthority.HandleSeatRequest(
-                playerId,
-                request
-            );
-
-        // -----------------------------------------------------
-        // RESULT
-        // -----------------------------------------------------
+            return;
+        }
 
         if (!result.Success)
         {
             Debug.LogWarning(
                 $"Seat request rejected: " +
-                $"{result.Code} - {result.Message}"
+                $"{result.Code} - " +
+                $"{result.Message}"
             );
 
-            // Return dropdown to actual authoritative state.
             Refresh();
 
             return;
@@ -380,13 +446,12 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (!initialized)
             return;
 
-        if (lobbyManager == null ||
-            lobbyAuthority == null)
-        {
-            Debug.LogError(
-                "Lobby authority references are missing."
-            );
+        if (!IsThisLocalPlayer())
+            return;
 
+        if (requestGateway == null ||
+            lobbyManager == null)
+        {
             return;
         }
 
@@ -398,34 +463,36 @@ public class LobbyPlayerSlotUI : MonoBehaviour
         if (player == null)
             return;
 
-        // -----------------------------------------------------
-        // CREATE REQUEST
-        // -----------------------------------------------------
+        requestGateway.RequestReadyState(
+            !player.IsReady,
+            HandleReadyRequestCompleted
+        );
+    }
 
-        SetReadyRequest request =
-            new SetReadyRequest(
-                !player.IsReady
+    // =========================================================
+    // READY RESULT
+    // =========================================================
+
+    private void HandleReadyRequestCompleted(
+        AuthorityResult result)
+    {
+        if (result == null)
+        {
+            Debug.LogWarning(
+                "Ready request returned no result."
             );
 
-        // -----------------------------------------------------
-        // SEND TO AUTHORITY
-        // -----------------------------------------------------
+            Refresh();
 
-        AuthorityResult result =
-            lobbyAuthority.HandleReadyRequest(
-                playerId,
-                request
-            );
-
-        // -----------------------------------------------------
-        // RESULT
-        // -----------------------------------------------------
+            return;
+        }
 
         if (!result.Success)
         {
             Debug.LogWarning(
                 $"Ready request rejected: " +
-                $"{result.Code} - {result.Message}"
+                $"{result.Code} - " +
+                $"{result.Message}"
             );
 
             Refresh();
@@ -437,6 +504,19 @@ public class LobbyPlayerSlotUI : MonoBehaviour
             $"Ready request accepted: " +
             $"{result.Message}"
         );
+    }
+
+    // =========================================================
+    // LOCAL PLAYER CHECK
+    // =========================================================
+
+    private bool IsThisLocalPlayer()
+    {
+        return
+            roomSessionContext != null &&
+            roomSessionContext.HasLocalPlayer &&
+            roomSessionContext.LocalPlayerId ==
+            playerId;
     }
 
     // =========================================================

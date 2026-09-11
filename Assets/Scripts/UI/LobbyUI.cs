@@ -11,7 +11,9 @@ public class LobbyUI : MonoBehaviour
 
     [Header("Managers")]
     [SerializeField] private LobbyManager lobbyManager;
-    [SerializeField] private LocalLobbyAuthority lobbyAuthority;
+    [SerializeField] private LobbyRequestGateway requestGateway;
+    [Header("Session")]
+    [SerializeField] private RoomSessionContext roomSessionContext;
 
     [Header("Panels")]
     [SerializeField] private GameObject lobbyPanel;
@@ -68,6 +70,11 @@ public class LobbyUI : MonoBehaviour
                 HandleStartGameClicked
             );
         }
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged +=
+                HandleSessionChanged;
+        }
     }
 
     private void Start()
@@ -108,6 +115,15 @@ public class LobbyUI : MonoBehaviour
                 HandleStartGameClicked
             );
         }
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged -=
+                HandleSessionChanged;
+        }
+    }
+    private void HandleSessionChanged()
+    {
+        RefreshLobbyUI();
     }
 
     // =========================================================
@@ -350,7 +366,8 @@ public class LobbyUI : MonoBehaviour
 
             slot.Initialize(
                 lobbyManager,
-                lobbyAuthority,
+                requestGateway,
+                roomSessionContext,
                 player.PlayerId
             );
 
@@ -409,22 +426,33 @@ public class LobbyUI : MonoBehaviour
                 out string errorMessage
             );
 
+        bool localPlayerIsHost =
+            roomSessionContext != null &&
+            roomSessionContext.IsLocalPlayerHost;
+
         if (startGameButton != null)
         {
             startGameButton.interactable =
-                canStart;
+                canStart &&
+                localPlayerIsHost;
         }
 
-        if (canStart)
+        if (!canStart)
         {
             SetLobbyMessage(
-                "All players ready. Match can start."
+                errorMessage
+            );
+        }
+        else if (localPlayerIsHost)
+        {
+            SetLobbyMessage(
+                "All players are ready. You can start the match."
             );
         }
         else
         {
             SetLobbyMessage(
-                errorMessage
+                "All players are ready. Waiting for the host to start the match."
             );
         }
     }
@@ -435,17 +463,78 @@ public class LobbyUI : MonoBehaviour
 
     private void HandleStartGameClicked()
     {
-        if (lobbyManager == null)
-            return;
-
-        bool started =
-            lobbyManager.StartMatch();
-
-        if (!started)
+        if (requestGateway == null)
         {
-            RefreshLobbyUI();
+            Debug.LogError(
+                "LobbyUI: LobbyRequestGateway is missing."
+            );
+
+            SetLobbyMessage(
+                "Lobby connection is unavailable."
+            );
+
             return;
         }
+
+        // =====================================================
+        // SEND START REQUEST
+        //
+        // LobbyUI does not know:
+        //
+        // - who the authority implementation is
+        // - whether it is local
+        // - whether it is remote
+        //
+        // It simply requests that the match be started.
+        // =====================================================
+
+        requestGateway.RequestStartMatch(
+            HandleStartMatchCompleted
+        );
+    }
+
+    private void HandleStartMatchCompleted(
+        AuthorityResult result)
+    {
+        if (result == null)
+        {
+            Debug.LogWarning(
+                "Start-match request returned no result."
+            );
+
+            SetLobbyMessage(
+                "Unable to start the match."
+            );
+
+            return;
+        }
+
+        // =====================================================
+        // REQUEST REJECTED
+        // =====================================================
+
+        if (!result.Success)
+        {
+            Debug.LogWarning(
+                $"Start-match request rejected: " +
+                $"{result.Code} - {result.Message}"
+            );
+
+            SetLobbyMessage(
+                result.Message
+            );
+
+            return;
+        }
+
+        // =====================================================
+        // REQUEST ACCEPTED
+        // =====================================================
+
+        Debug.Log(
+            $"Start-match request accepted: " +
+            $"{result.Message}"
+        );
 
         ShowGame();
     }

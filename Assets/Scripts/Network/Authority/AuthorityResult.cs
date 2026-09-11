@@ -11,6 +11,8 @@ public enum AuthorityResultCode
     PlayerNotSeated,
 
     LobbyNotAvailable,
+    NotHost,
+    MatchCannotStart,
 
     RequestRejected
 }

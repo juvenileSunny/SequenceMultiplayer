@@ -1,13 +1,28 @@
+using System;
 using UnityEngine;
 
 public class RoomSessionContext : MonoBehaviour
 {
+    // =========================================================
+    // CURRENT ROOM
+    // =========================================================
+
     [Header("Current Room")]
     [SerializeField] private string roomCode = "";
+
+    // =========================================================
+    // PLAYER IDENTITY
+    // =========================================================
 
     [Header("Player Identity")]
     [SerializeField] private int localPlayerId = -1;
     [SerializeField] private int hostPlayerId = -1;
+
+    // =========================================================
+    // EVENTS
+    // =========================================================
+
+    public event Action OnSessionChanged;
 
     // =========================================================
     // PUBLIC DATA
@@ -23,7 +38,9 @@ public class RoomSessionContext : MonoBehaviour
         hostPlayerId;
 
     public bool HasRoom =>
-        !string.IsNullOrWhiteSpace(roomCode);
+        !string.IsNullOrWhiteSpace(
+            roomCode
+        );
 
     public bool HasLocalPlayer =>
         localPlayerId > 0;
@@ -50,8 +67,7 @@ public class RoomSessionContext : MonoBehaviour
         localPlayerId =
             newLocalPlayerId;
 
-        // The player who creates the room
-        // becomes the room host.
+        // Room creator becomes host.
         hostPlayerId =
             newLocalPlayerId;
 
@@ -61,6 +77,8 @@ public class RoomSessionContext : MonoBehaviour
             $"LocalPlayer={localPlayerId}, " +
             $"HostPlayer={hostPlayerId}"
         );
+
+        OnSessionChanged?.Invoke();
     }
 
     // =========================================================
@@ -87,10 +105,12 @@ public class RoomSessionContext : MonoBehaviour
             $"LocalPlayer={localPlayerId}, " +
             $"HostPlayer={hostPlayerId}"
         );
+
+        OnSessionChanged?.Invoke();
     }
 
     // =========================================================
-    // CLEAR
+    // CLEAR SESSION
     // =========================================================
 
     public void ClearSession()
@@ -102,5 +122,39 @@ public class RoomSessionContext : MonoBehaviour
         Debug.Log(
             "Room session cleared."
         );
+
+        OnSessionChanged?.Invoke();
     }
+
+    // =========================================================
+    // DEVELOPMENT PLAYER SIMULATION
+    // =========================================================
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+    public void DebugSetLocalPlayerId(
+        int playerId)
+    {
+        if (playerId <= 0)
+        {
+            Debug.LogWarning(
+                $"DEBUG: Invalid simulated PlayerId " +
+                $"{playerId}."
+            );
+
+            return;
+        }
+
+        localPlayerId =
+            playerId;
+
+        Debug.LogWarning(
+            $"DEBUG: This Unity instance is now " +
+            $"simulating Player {localPlayerId}."
+        );
+
+        OnSessionChanged?.Invoke();
+    }
+
+#endif
 }
