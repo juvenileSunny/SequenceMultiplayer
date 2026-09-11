@@ -11,6 +11,7 @@ public class LobbyUI : MonoBehaviour
 
     [Header("Managers")]
     [SerializeField] private LobbyManager lobbyManager;
+    [SerializeField] private LocalLobbyAuthority lobbyAuthority;
 
     [Header("Panels")]
     [SerializeField] private GameObject lobbyPanel;
@@ -349,6 +350,7 @@ public class LobbyUI : MonoBehaviour
 
             slot.Initialize(
                 lobbyManager,
+                lobbyAuthority,
                 player.PlayerId
             );
 
