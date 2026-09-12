@@ -13,6 +13,10 @@ public class NetworkLobbyBridge : NetworkBehaviour
     [SerializeField]
     private LobbyManager lobbyManager;
 
+    [Header("Match State")]
+    [SerializeField]
+    private NetworkMatchState networkMatchState;
+
     // =========================================================
     // TEMPORARY CONNECTION -> PLAYER MAPPING
     //
@@ -856,7 +860,15 @@ private void HandleHostStartMatchRequest(
             playerId,
             request
         );
-
+    if (result.Success)
+    {
+        if (networkMatchState != null)
+        {
+            networkMatchState.SetPhase(
+                MatchPhase.Playing
+            );
+        }
+    }
     Debug.Log(
         $"NETWORK start-match request: " +
         $"ClientId={hostClientId}, " +

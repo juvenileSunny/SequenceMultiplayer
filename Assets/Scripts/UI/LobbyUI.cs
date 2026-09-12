@@ -15,6 +15,10 @@ public class LobbyUI : MonoBehaviour
     [Header("Session")]
     [SerializeField] private RoomSessionContext roomSessionContext;
 
+    [Header("Network Match State")]
+    [SerializeField]
+    private NetworkMatchState networkMatchState;
+
     [Header("Panels")]
     [SerializeField] private GameObject lobbyPanel;
     [SerializeField] private GameObject boardPanel;
@@ -75,6 +79,11 @@ public class LobbyUI : MonoBehaviour
             roomSessionContext.OnSessionChanged +=
                 HandleSessionChanged;
         }
+        if (networkMatchState != null)
+        {
+            networkMatchState.OnMatchPhaseChanged +=
+                HandleMatchPhaseChanged;
+        }
     }
 
     private void Start()
@@ -115,10 +124,17 @@ public class LobbyUI : MonoBehaviour
                 HandleStartGameClicked
             );
         }
+
         if (roomSessionContext != null)
         {
             roomSessionContext.OnSessionChanged -=
                 HandleSessionChanged;
+        }
+
+        if (networkMatchState != null)
+        {
+            networkMatchState.OnMatchPhaseChanged -=
+                HandleMatchPhaseChanged;
         }
     }
     private void HandleSessionChanged()
@@ -406,7 +422,20 @@ public class LobbyUI : MonoBehaviour
     // =========================================================
     // REFRESH
     // =========================================================
+    private void HandleMatchPhaseChanged(
+        MatchPhase previousPhase,
+        MatchPhase newPhase)
+    {
+        Debug.Log(
+            $"LobbyUI received MatchPhase: " +
+            $"{previousPhase} -> {newPhase}"
+        );
 
+        if (newPhase == MatchPhase.Playing)
+        {
+            ShowGame();
+        }
+    }
     private void RefreshLobbyUI()
     {
         if (lobbyManager == null)
@@ -536,7 +565,7 @@ public class LobbyUI : MonoBehaviour
             $"{result.Message}"
         );
 
-        ShowGame();
+        // ShowGame();
     }
 
     // =========================================================

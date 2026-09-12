@@ -2357,6 +2357,7 @@ MonoBehaviour:
   lobbyManager: {fileID: 1230265247}
   requestGateway: {fileID: 1552829692}
   roomSessionContext: {fileID: 1552829690}
+  networkMatchState: {fileID: 641753826}
   lobbyPanel: {fileID: 532031805}
   boardPanel: {fileID: 7393643236964312922}
   handPanel: {fileID: 1374438954}
@@ -2874,6 +2875,7 @@ GameObject:
   - component: {fileID: 641753824}
   - component: {fileID: 641753823}
   - component: {fileID: 641753825}
+  - component: {fileID: 641753826}
   m_Layer: 0
   m_Name: NetworkLobbyBridge
   m_TagString: Untagged
@@ -2931,6 +2933,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   lobbyAuthority: {fileID: 1234614213}
   lobbyManager: {fileID: 1230265247}
+  networkMatchState: {fileID: 641753826}
+--- !u!114 &641753826
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e613f3e18bd20204599e1c938f166670, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &670749231
 GameObject:
   m_ObjectHideFlags: 0
