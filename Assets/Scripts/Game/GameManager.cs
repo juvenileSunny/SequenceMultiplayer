@@ -9,7 +9,7 @@ public class GameManager : MonoBehaviour
     // =========================================================
 
     [Header("Local Test Settings")]
-    [SerializeField] private bool autoStartLocalTestGame = true;
+    [SerializeField] private bool autoStartLocalTestGame = false;
 
     [SerializeField] private int localTestPlayerCount = 6;
     [SerializeField] private int localTestTeamCount = 2;
@@ -21,6 +21,10 @@ public class GameManager : MonoBehaviour
     [Header("Managers")]
     [SerializeField] private HandManager handManager;
     [SerializeField] private BoardManager boardManager;
+
+    [Header("Network State")]
+    [SerializeField]
+    private NetworkGameState networkGameState;
 
     [Header("UI")]
     [SerializeField] private GameStatusUI gameStatusUI;
@@ -40,6 +44,15 @@ public class GameManager : MonoBehaviour
 
     private bool deadCardReplacedThisTurn = false;
     private bool gameOver = false;
+
+    // =========================================================
+    // LOCAL NETWORK INPUT
+    //
+    // True only when this computer owns the player
+    // whose turn it currently is.
+    // =========================================================
+
+    private bool localTurnInputEnabled = false;
 
     // =========================================================
     // PUBLIC DATA
@@ -219,8 +232,11 @@ public class GameManager : MonoBehaviour
         ShowPlayerHand(
             currentPlayerId
         );
-
+        // Publish the authoritative first turn.
+        SyncCurrentTurnToNetwork();
         UpdateGameStatusUI();
+        
+        
 
         Debug.Log(
             $"Game started: " +
@@ -274,6 +290,35 @@ public class GameManager : MonoBehaviour
         }
 
         return config;
+    }
+    // =========================================================
+    // LOCAL TURN INPUT
+    // =========================================================
+
+    public void SetLocalTurnInputEnabled(
+        bool enabled)
+    {
+        localTurnInputEnabled =
+            enabled;
+
+        if (!enabled)
+        {
+            if (boardManager != null)
+            {
+                boardManager.ClearHighlights();
+            }
+
+            if (handManager != null)
+            {
+                handManager.SetDeadCardButtonState(
+                    false
+                );
+            }
+        }
+
+        Debug.Log(
+            $"Local turn input = {enabled}"
+        );
     }
 
     // =========================================================
@@ -536,6 +581,27 @@ public class GameManager : MonoBehaviour
     private void HandleSelectedCardChanged(
         Card card)
     {
+        if (!localTurnInputEnabled)
+        {
+            if (boardManager != null)
+            {
+                boardManager.ClearHighlights();
+            }
+
+            if (handManager != null)
+            {
+                handManager.SetDeadCardButtonState(
+                    false
+                );
+            }
+
+            Debug.Log(
+                "Card selection ignored: " +
+                "it is not this local player's turn."
+            );
+
+            return;
+        }
         if (gameOver)
         {
             boardManager.ClearHighlights();
@@ -654,7 +720,16 @@ public class GameManager : MonoBehaviour
     private void HandleDeadCardRequested(
         Card deadCard)
     {
-        if (gameOver)
+        if (!localTurnInputEnabled)
+        {
+            Debug.Log(
+                "Dead-card request ignored: " +
+                "it is not this local player's turn."
+            );
+
+            return;
+        }
+                if (gameOver)
             return;
 
         if (deadCard == null)
@@ -868,6 +943,7 @@ public class GameManager : MonoBehaviour
     // TURN MANAGEMENT
     // =========================================================
 
+
     private void AdvanceTurn()
     {
         if (gameOver)
@@ -886,15 +962,18 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        // =====================================================
+        // FIND NEXT SEAT
+        //
         // Turn order is based ONLY on SeatIndex.
+        // =====================================================
+
         int nextSeat =
             currentPlayer.SeatIndex + 1;
 
-        if (nextSeat >
-            players.Count)
+        if (nextSeat > players.Count)
         {
-            nextSeat =
-                1;
+            nextSeat = 1;
         }
 
         Player nextPlayer =
@@ -905,12 +984,15 @@ public class GameManager : MonoBehaviour
         if (nextPlayer == null)
         {
             Debug.LogError(
-                $"No player found in Seat " +
-                $"{nextSeat}."
+                $"No player found in Seat {nextSeat}."
             );
 
             return;
         }
+
+        // =====================================================
+        // CHANGE AUTHORITATIVE CURRENT PLAYER
+        // =====================================================
 
         currentPlayerId =
             nextPlayer.PlayerId;
@@ -920,11 +1002,29 @@ public class GameManager : MonoBehaviour
 
         boardManager.ClearHighlights();
 
+        // =====================================================
+        // UPDATE LOCAL SERVER GAME STATE
+        // =====================================================
+
         SetBoardForCurrentPlayer();
 
-        ShowPlayerHand(
-            currentPlayerId
-        );
+        // ShowPlayerHand(
+        //     currentPlayerId
+        // );
+
+        // =====================================================
+        // SYNCHRONIZE TURN OVER NETWORK
+        //
+        // The SERVER has decided who plays next.
+        // NetworkGameState publishes that decision to
+        // every connected client.
+        // =====================================================
+
+        SyncCurrentTurnToNetwork();
+
+        // =====================================================
+        // UPDATE UI
+        // =====================================================
 
         UpdateGameStatusUI();
 
@@ -1067,6 +1167,41 @@ public class GameManager : MonoBehaviour
                     $"Unsupported player count: {count}"
                 );
         }
+    }
+
+    // =========================================================
+    // SYNCHRONIZE AUTHORITATIVE TURN
+    // =========================================================
+
+    private void SyncCurrentTurnToNetwork()
+    {
+        if (networkGameState == null)
+        {
+            Debug.LogWarning(
+                "GameManager: NetworkGameState is not assigned."
+            );
+
+            return;
+        }
+
+        Player currentPlayer =
+            GetCurrentPlayer();
+
+        if (currentPlayer == null)
+        {
+            Debug.LogWarning(
+                "GameManager: Cannot synchronize turn. " +
+                "Current player is null."
+            );
+
+            return;
+        }
+
+        networkGameState.SetCurrentTurn(
+            currentPlayer.PlayerId,
+            currentPlayer.SeatIndex,
+            currentPlayer.TeamId
+        );
     }
 
     // =========================================================
