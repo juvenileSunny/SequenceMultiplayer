@@ -93,7 +93,6 @@ public class NetworkGameplayBridge : NetworkBehaviour
             return;
         }
 
-        // Host already owns the authoritative board.
         if (IsServer)
         {
             onCompleted?.Invoke(
@@ -257,7 +256,6 @@ public class NetworkGameplayBridge : NetworkBehaviour
             return;
         }
 
-        // Host uses GameManager directly.
         if (IsServer)
         {
             onCompleted?.Invoke(
@@ -398,6 +396,9 @@ public class NetworkGameplayBridge : NetworkBehaviour
 
     // =========================================================
     // SERVER BOARD CHANGE
+    //
+    // Normal connected clients receive authoritative deltas
+    // as moves happen.
     // =========================================================
 
     private void HandleServerBoardCellChanged(
@@ -418,7 +419,7 @@ public class NetworkGameplayBridge : NetworkBehaviour
     }
 
     // =========================================================
-    // SERVER -> CLIENT BOARD STATE
+    // SERVER -> CLIENT BOARD DELTA
     // =========================================================
 
     [ClientRpc]
@@ -428,7 +429,6 @@ public class NetworkGameplayBridge : NetworkBehaviour
         int ownerTeamId,
         bool isPartOfCompletedSequence)
     {
-        // Host already mutated its authoritative board.
         if (IsServer)
             return;
 
@@ -446,6 +446,188 @@ public class NetworkGameplayBridge : NetworkBehaviour
             $"BOARD SYNC: " +
             $"[{row},{column}] -> " +
             $"Team {ownerTeamId}"
+        );
+    }
+
+    // =========================================================
+    // FULL BOARD SNAPSHOT FOR REJOIN
+    //
+    // A reconnecting player may have missed many deltas while
+    // disconnected, so the server sends all 100 board cells.
+    // =========================================================
+
+    public void SendFullBoardSnapshotToPlayer(
+        int playerId)
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning(
+                "Only the server may send a board snapshot."
+            );
+
+            return;
+        }
+
+        if (boardManager == null ||
+            boardManager.Board == null)
+        {
+            Debug.LogWarning(
+                "Cannot send board snapshot. " +
+                "BoardManager/Board is unavailable."
+            );
+
+            return;
+        }
+
+        if (networkLobbyBridge == null)
+        {
+            Debug.LogWarning(
+                "Cannot send board snapshot. " +
+                "NetworkLobbyBridge is unavailable."
+            );
+
+            return;
+        }
+
+        if (!networkLobbyBridge.TryGetClientIdForPlayerId(
+                playerId,
+                out ulong targetClientId))
+        {
+            Debug.LogWarning(
+                $"Cannot send board snapshot. " +
+                $"Player {playerId} is not currently connected."
+            );
+
+            return;
+        }
+
+        int cellCount =
+            Board.Rows *
+            Board.Columns;
+
+        int[] ownerTeamIds =
+            new int[
+                cellCount
+            ];
+
+        bool[] completedSequenceFlags =
+            new bool[
+                cellCount
+            ];
+
+        int index = 0;
+
+        for (int row = 0;
+             row < Board.Rows;
+             row++)
+        {
+            for (int column = 0;
+                 column < Board.Columns;
+                 column++)
+            {
+                BoardCell cell =
+                    boardManager.Board.GetCell(
+                        row,
+                        column
+                    );
+
+                if (cell != null)
+                {
+                    ownerTeamIds[index] =
+                        cell.OwnerTeamId;
+
+                    completedSequenceFlags[index] =
+                        cell.IsPartOfCompletedSequence;
+                }
+
+                index++;
+            }
+        }
+
+        ClientRpcParams target =
+            CreateTargetClientRpcParams(
+                targetClientId
+            );
+
+        FullBoardSnapshotClientRpc(
+            ownerTeamIds,
+            completedSequenceFlags,
+            target
+        );
+
+        Debug.LogWarning(
+            $"FULL BOARD SNAPSHOT sent to " +
+            $"Player {playerId} / ClientId {targetClientId}."
+        );
+    }
+
+    [ClientRpc]
+    private void FullBoardSnapshotClientRpc(
+        int[] ownerTeamIds,
+        bool[] completedSequenceFlags,
+        ClientRpcParams clientRpcParams = default)
+    {
+        if (IsServer)
+            return;
+
+        if (boardManager == null)
+            return;
+
+        int expectedCellCount =
+            Board.Rows *
+            Board.Columns;
+
+        if (ownerTeamIds == null ||
+            completedSequenceFlags == null ||
+            ownerTeamIds.Length !=
+                expectedCellCount ||
+            completedSequenceFlags.Length !=
+                expectedCellCount)
+        {
+            Debug.LogWarning(
+                "Received invalid full board snapshot."
+            );
+
+            return;
+        }
+
+        int index = 0;
+
+        for (int row = 0;
+             row < Board.Rows;
+             row++)
+        {
+            for (int column = 0;
+                 column < Board.Columns;
+                 column++)
+            {
+                BoardCell localCell =
+                    boardManager.Board != null
+                        ? boardManager.Board.GetCell(
+                            row,
+                            column
+                        )
+                        : null;
+
+                // Corners are permanent free spaces and do not
+                // need owner/protection state written onto them.
+                if (localCell != null &&
+                    !localCell.IsCorner)
+                {
+                    boardManager.ApplyNetworkCellState(
+                        row,
+                        column,
+                        ownerTeamIds[index],
+                        completedSequenceFlags[index]
+                    );
+                }
+
+                index++;
+            }
+        }
+
+        Debug.LogWarning(
+            "FULL BOARD SNAPSHOT applied on client."
         );
     }
 

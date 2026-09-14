@@ -83,12 +83,11 @@ public class BoardManager : MonoBehaviour
         int previousPlayerId,
         int newPlayerId)
     {
-        if (networkGameState == null)
-            return;
+        RefreshCurrentPlayerFromNetwork();
 
-        SetCurrentPlayer(
-            networkGameState.CurrentPlayerId,
-            networkGameState.CurrentTeamId
+        Debug.Log(
+            $"Board network identity refreshed: " +
+            $"Player {currentPlayerId}, Team {currentTeamId}."
         );
     }
 
@@ -141,6 +140,27 @@ public class BoardManager : MonoBehaviour
     // =========================================================
     // CURRENT PLAYER / TEAM
     // =========================================================
+    private void RefreshCurrentPlayerFromNetwork()
+    {
+        if (networkGameState == null)
+            return;
+
+        if (!networkGameState.IsSpawned)
+            return;
+
+        if (networkGameState.CurrentPlayerId <= 0)
+            return;
+
+        if (networkGameState.CurrentTeamId <= 0)
+            return;
+
+        currentPlayerId =
+            networkGameState.CurrentPlayerId;
+
+        currentTeamId =
+            networkGameState.CurrentTeamId;
+    }
+
 
     public void SetCurrentPlayer(
         int playerId,
@@ -162,6 +182,8 @@ public class BoardManager : MonoBehaviour
     private void OnCellClicked(
         BoardCellView cellView)
     {
+        RefreshCurrentPlayerFromNetwork();
+
         NetworkManager networkManager =
             NetworkManager.Singleton;
 
@@ -786,6 +808,8 @@ public class BoardManager : MonoBehaviour
     public void HighlightMatchingCard(
         Card card)
     {
+        RefreshCurrentPlayerFromNetwork();
+
         ClearHighlightVisuals();
 
         selectedCard = card;

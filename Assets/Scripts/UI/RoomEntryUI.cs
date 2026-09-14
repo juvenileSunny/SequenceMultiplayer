@@ -1,3 +1,4 @@
+using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,6 +20,9 @@ public class RoomEntryUI : MonoBehaviour
     [Header("Networking")]
     [SerializeField]
     private SequenceNetworkBootstrap networkBootstrap;
+
+    [SerializeField]
+    private NetworkLobbyBridge networkLobbyBridge;
 
     // =========================================================
     // PANELS
@@ -51,8 +55,8 @@ public class RoomEntryUI : MonoBehaviour
     // TEMPORARY LOCAL TEST IDENTITY
     //
     // These IDs are temporary.
-    // Later the server will assign PlayerId values based
-    // on actual NGO client connections.
+    // The next rejoin step will make the SERVER restore
+    // PlayerId from the persistent rejoin token.
     // =========================================================
 
     [Header("Temporary Local Testing")]
@@ -60,7 +64,7 @@ public class RoomEntryUI : MonoBehaviour
     private int temporaryHostPlayerId = 1;
 
     [SerializeField]
-    private int temporaryJoiningPlayerId = 2;
+    // private int temporaryJoiningPlayerId = 2;
 
     // =========================================================
     // PUBLIC DATA
@@ -111,6 +115,12 @@ public class RoomEntryUI : MonoBehaviour
                 HandleJoinRoomClicked
             );
         }
+
+        if (networkBootstrap != null)
+        {
+            networkBootstrap.OnLocalClientDisconnected +=
+                HandleLocalClientDisconnected;
+        }
     }
 
     private void OnDisable()
@@ -128,6 +138,12 @@ public class RoomEntryUI : MonoBehaviour
                 HandleJoinRoomClicked
             );
         }
+
+        if (networkBootstrap != null)
+        {
+            networkBootstrap.OnLocalClientDisconnected -=
+                HandleLocalClientDisconnected;
+        }
     }
 
     // =========================================================
@@ -136,10 +152,6 @@ public class RoomEntryUI : MonoBehaviour
 
     private void HandleCreateRoomClicked()
     {
-        // -----------------------------------------------------
-        // 1. Validate network bootstrap
-        // -----------------------------------------------------
-
         if (networkBootstrap == null)
         {
             Debug.LogError(
@@ -153,10 +165,6 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        // -----------------------------------------------------
-        // 2. Validate session context BEFORE starting host
-        // -----------------------------------------------------
-
         if (roomSessionContext == null)
         {
             Debug.LogError(
@@ -169,13 +177,6 @@ public class RoomEntryUI : MonoBehaviour
 
             return;
         }
-
-        // -----------------------------------------------------
-        // 3. Start the REAL NGO host
-        //
-        // HOST =
-        // Server + local Client
-        // -----------------------------------------------------
 
         bool hostStarted =
             networkBootstrap.StartHost();
@@ -193,39 +194,13 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        // -----------------------------------------------------
-        // 4. Generate temporary room code
-        //
-        // IMPORTANT:
-        // This room code does NOT perform real discovery yet.
-        // It is still temporary/local.
-        // -----------------------------------------------------
-
         string roomCode =
             GenerateTemporaryRoomCode();
-
-        // -----------------------------------------------------
-        // 5. Configure our game session
-        //
-        // temporaryHostPlayerId is currently Player 1.
-        //
-        // Later:
-        //
-        // NGO ClientId
-        //      ↓
-        // PlayerId
-        //
-        // will replace this temporary assignment.
-        // -----------------------------------------------------
 
         roomSessionContext.ConfigureAsHost(
             roomCode,
             temporaryHostPlayerId
         );
-
-        // -----------------------------------------------------
-        // 6. Debug information
-        // -----------------------------------------------------
 
         Debug.Log(
             $"ROOM CREATED: " +
@@ -242,23 +217,15 @@ public class RoomEntryUI : MonoBehaviour
             $"{roomSessionContext.HostPlayerId}"
         );
 
-        // -----------------------------------------------------
-        // 7. Enter lobby
-        // -----------------------------------------------------
-
         OpenLobby();
     }
 
     // =========================================================
-    // JOIN ROOM
+    // JOIN / REJOIN ROOM
     // =========================================================
 
     private void HandleJoinRoomClicked()
     {
-        // =========================================================
-        // VALIDATE REFERENCES
-        // =========================================================
-
         if (networkBootstrap == null)
         {
             Debug.LogError(
@@ -285,12 +252,21 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
+        if (networkLobbyBridge == null)
+        {
+            Debug.LogError(
+                "RoomEntryUI: NetworkLobbyBridge is missing."
+            );
+
+            SetMessage(
+                "Network session registration is unavailable."
+            );
+
+            return;
+        }
+
         if (roomCodeInput == null)
             return;
-
-        // =========================================================
-        // READ ROOM CODE
-        // =========================================================
 
         string enteredCode =
             roomCodeInput.text
@@ -307,9 +283,20 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        // =========================================================
-        // BEGIN REAL NETWORK CONNECTION
-        // =========================================================
+        string rejoinToken =
+            roomSessionContext.GetOrCreateRejoinToken(
+                enteredCode
+            );
+
+        if (string.IsNullOrWhiteSpace(
+                rejoinToken))
+        {
+            SetMessage(
+                "Could not create a rejoin identity."
+            );
+
+            return;
+        }
 
         SetMessage(
             "Connecting to host..."
@@ -318,54 +305,20 @@ public class RoomEntryUI : MonoBehaviour
         bool connectionStarted =
             networkBootstrap.StartClient(
 
-                // =============================================
-                // CONNECTION SUCCESS
-                // =============================================
-
                 () =>
                 {
                     Debug.Log(
-                        "Network connection succeeded."
+                        "Network connection succeeded. " +
+                        "Waiting for session registration..."
                     );
 
-                    // -----------------------------------------
-                    // TEMPORARY GAME IDENTITY
-                    //
-                    // We still temporarily pretend:
-                    //
-                    // Host   = Player 1
-                    // Client = Player 2
-                    //
-                    // Later the SERVER will assign PlayerId.
-                    // -----------------------------------------
-
-                    roomSessionContext.ConfigureAsClient(
-                        enteredCode,
-                        temporaryJoiningPlayerId,
-                        temporaryHostPlayerId
+                    StartCoroutine(
+                        RegisterConnectedClient(
+                            enteredCode,
+                            rejoinToken
+                        )
                     );
-
-                    Debug.Log(
-                        $"Joined network room: " +
-                        $"{enteredCode}"
-                    );
-
-                    Debug.Log(
-                        $"Local Player: " +
-                        $"{roomSessionContext.LocalPlayerId}"
-                    );
-
-                    Debug.Log(
-                        $"Host Player: " +
-                        $"{roomSessionContext.HostPlayerId}"
-                    );
-
-                    OpenLobby();
                 },
-
-                // =============================================
-                // CONNECTION FAILURE
-                // =============================================
 
                 (errorMessage) =>
                 {
@@ -385,6 +338,212 @@ public class RoomEntryUI : MonoBehaviour
                 "Client connection attempt could not start."
             );
         }
+    }
+
+    // =========================================================
+    // SERVER SESSION REGISTRATION
+    //
+    // Transport connection is not enough to identify the player.
+    //
+    // ClientId
+    //    + persistent RejoinToken
+    //          ↓
+    // SERVER
+    //          ↓
+    // permanent PlayerId
+    // =========================================================
+
+    private IEnumerator RegisterConnectedClient(
+        string enteredCode,
+        string rejoinToken)
+    {
+        float timeoutAt =
+            Time.realtimeSinceStartup +
+            5f;
+
+        // The transport can report "connected" slightly before
+        // this scene NetworkBehaviour has completed its network
+        // spawn. Wait briefly instead of racing the first RPC.
+        while (networkLobbyBridge != null &&
+               !networkLobbyBridge.IsSpawned &&
+               Time.realtimeSinceStartup <
+                   timeoutAt)
+        {
+            yield return null;
+        }
+
+        if (networkLobbyBridge == null ||
+            !networkLobbyBridge.IsSpawned)
+        {
+            SetMessage(
+                "Connected, but session registration " +
+                "did not become ready."
+            );
+
+            Debug.LogWarning(
+                "NetworkLobbyBridge did not spawn in time."
+            );
+
+            yield break;
+        }
+
+        SetMessage(
+            "Registering player identity..."
+        );
+
+        networkLobbyBridge.RequestSessionRegistration(
+            enteredCode,
+            rejoinToken,
+
+            (
+                success,
+                assignedPlayerId,
+                isRejoin,
+                isMatchInProgress,
+                message
+            ) =>
+            {
+                if (!success)
+                {
+                    Debug.LogWarning(
+                        $"Session registration failed: " +
+                        $"{message}"
+                    );
+
+                    SetMessage(
+                        message
+                    );
+
+                    networkBootstrap.Shutdown();
+
+                    return;
+                }
+
+                // IMPORTANT:
+                // The SERVER is now the source of truth for
+                // PlayerId. We no longer assume the remote
+                // client is Player 2.
+                roomSessionContext.ConfigureAsClient(
+                    enteredCode,
+                    assignedPlayerId,
+                    temporaryHostPlayerId,
+                    rejoinToken
+                );
+
+                Debug.LogWarning(
+                    isRejoin
+                        ? $"REJOIN IDENTITY RESTORED: " +
+                          $"Player {assignedPlayerId}."
+                        : $"SERVER ASSIGNED IDENTITY: " +
+                          $"Player {assignedPlayerId}."
+                );
+
+                if (!isMatchInProgress)
+                {
+                    SetMessage(
+                        message
+                    );
+
+                    OpenLobby();
+
+                    return;
+                }
+
+                // Existing match:
+                // now that LocalPlayerId is configured,
+                // request the private hand and full board.
+                SetMessage(
+                    "Rejoining existing match..."
+                );
+
+                networkLobbyBridge.RequestCurrentMatchStateSync(
+                    (syncSuccess, syncMessage) =>
+                    {
+                        if (!syncSuccess)
+                        {
+                            Debug.LogWarning(
+                                $"Rejoin state sync failed: " +
+                                $"{syncMessage}"
+                            );
+
+                            SetMessage(
+                                syncMessage
+                            );
+
+                            return;
+                        }
+
+                        Debug.LogWarning(
+                            $"REJOIN COMPLETE: " +
+                            $"{syncMessage}"
+                        );
+
+                        SetMessage(
+                            "Rejoined match."
+                        );
+
+                        OpenGame();
+                    }
+                );
+            }
+        );
+    }
+
+    // =========================================================
+    // ACCIDENTAL CLIENT DISCONNECT
+    // =========================================================
+
+    private void HandleLocalClientDisconnected()
+    {
+        if (roomSessionContext == null)
+            return;
+
+        // Host recovery is a separate feature.
+        if (roomSessionContext.IsLocalPlayerHost)
+            return;
+
+        string previousRoomCode =
+            roomSessionContext.RoomCode;
+
+        Debug.LogWarning(
+            $"Connection lost for Player " +
+            $"{roomSessionContext.LocalPlayerId}. " +
+            $"Room {previousRoomCode} remains available for rejoin."
+        );
+
+        // IMPORTANT:
+        // Do NOT ClearSession().
+        // Do NOT delete the rejoin token.
+        //
+        // The server should continue holding the
+        // authoritative Player object and hand.
+        if (roomEntryPanel != null)
+            roomEntryPanel.SetActive(true);
+
+        if (lobbyPanel != null)
+            lobbyPanel.SetActive(false);
+
+        if (boardPanel != null)
+            boardPanel.SetActive(false);
+
+        if (handPanel != null)
+            handPanel.SetActive(false);
+
+        if (gameStatusPanel != null)
+            gameStatusPanel.SetActive(false);
+
+        if (roomCodeInput != null &&
+            !string.IsNullOrWhiteSpace(
+                previousRoomCode))
+        {
+            roomCodeInput.text =
+                previousRoomCode;
+        }
+
+        SetMessage(
+            "Connection lost. " +
+            "Press Join to rejoin the same room."
+        );
     }
 
     // =========================================================
@@ -425,6 +584,36 @@ public class RoomEntryUI : MonoBehaviour
                 $"Entered Room " +
                 $"{roomSessionContext.RoomCode} " +
                 $"as CLIENT."
+            );
+        }
+    }
+
+    // =========================================================
+    // OPEN EXISTING GAME AFTER REJOIN
+    // =========================================================
+
+    private void OpenGame()
+    {
+        if (roomEntryPanel != null)
+            roomEntryPanel.SetActive(false);
+
+        if (lobbyPanel != null)
+            lobbyPanel.SetActive(false);
+
+        if (boardPanel != null)
+            boardPanel.SetActive(true);
+
+        if (handPanel != null)
+            handPanel.SetActive(true);
+
+        if (gameStatusPanel != null)
+            gameStatusPanel.SetActive(true);
+
+        if (roomSessionContext != null)
+        {
+            Debug.LogWarning(
+                $"Opened existing match for " +
+                $"Player {roomSessionContext.LocalPlayerId}."
             );
         }
     }

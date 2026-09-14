@@ -9,9 +9,15 @@ public class SequenceNetworkBootstrap : MonoBehaviour
     private NetworkManager networkManager;
 
     private bool waitingForClientConnection = false;
+    private bool intentionalShutdown = false;
 
     private Action clientConnectedCallback;
     private Action<string> clientConnectionFailedCallback;
+
+    // Fired only for this local remote-client instance
+    // after it had already connected successfully and
+    // then lost the connection.
+    public event Action OnLocalClientDisconnected;
 
     // =========================================================
     // UNITY
@@ -24,6 +30,11 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             networkManager =
                 NetworkManager.Singleton;
         }
+    }
+
+    private void OnDestroy()
+    {
+        CleanupClientCallbacks();
     }
 
     // =========================================================
@@ -43,6 +54,9 @@ public class SequenceNetworkBootstrap : MonoBehaviour
 
             return false;
         }
+
+        intentionalShutdown =
+            false;
 
         bool started =
             networkManager.StartHost();
@@ -98,6 +112,9 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             return false;
         }
 
+        intentionalShutdown =
+            false;
+
         // -----------------------------------------------------
         // Store callbacks supplied by RoomEntryUI.
         // -----------------------------------------------------
@@ -112,9 +129,15 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             true;
 
         // -----------------------------------------------------
-        // Listen for NGO connection events BEFORE starting
-        // the client.
+        // Ensure we have exactly one copy of each callback.
+        //
+        // IMPORTANT:
+        // After a successful connection we remove only the
+        // connected callback. We keep the disconnect callback
+        // alive so we can detect an accidental later drop.
         // -----------------------------------------------------
+
+        CleanupClientCallbacks();
 
         networkManager.OnClientConnectedCallback +=
             HandleClientConnected;
@@ -125,7 +148,6 @@ public class SequenceNetworkBootstrap : MonoBehaviour
         // -----------------------------------------------------
         // Start attempting to connect.
         //
-        // IMPORTANT:
         // true here means:
         //
         // "The connection attempt started."
@@ -178,9 +200,11 @@ public class SequenceNetworkBootstrap : MonoBehaviour
         if (networkManager == null)
             return;
 
-        // We only care about THIS client's connection.
-        if (clientId != networkManager.LocalClientId)
+        if (clientId !=
+            networkManager.LocalClientId)
+        {
             return;
+        }
 
         waitingForClientConnection =
             false;
@@ -190,7 +214,11 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             $"NGO ClientId = {clientId}"
         );
 
-        CleanupClientCallbacks();
+        // We no longer need to listen for another initial
+        // connection event, but we KEEP the disconnect
+        // callback so an accidental drop can be detected.
+        networkManager.OnClientConnectedCallback -=
+            HandleClientConnected;
 
         Action callback =
             clientConnectedCallback;
@@ -201,39 +229,63 @@ public class SequenceNetworkBootstrap : MonoBehaviour
     }
 
     // =========================================================
-    // CLIENT CONNECTION FAILED / DISCONNECTED
+    // CLIENT CONNECTION FAILED / LATER DISCONNECTED
     // =========================================================
 
     private void HandleClientDisconnected(
         ulong clientId)
     {
-        if (!waitingForClientConnection)
-            return;
-
         if (networkManager == null)
             return;
 
-        if (clientId != networkManager.LocalClientId)
+        if (clientId !=
+            networkManager.LocalClientId)
+        {
             return;
+        }
+
+        bool wasWaitingForInitialConnection =
+            waitingForClientConnection;
 
         waitingForClientConnection =
             false;
 
-        Debug.LogWarning(
-            "Sequence client failed to connect " +
-            "or disconnected before joining."
-        );
-
         CleanupClientCallbacks();
 
-        Action<string> callback =
-            clientConnectionFailedCallback;
+        if (intentionalShutdown)
+        {
+            return;
+        }
+
+        if (wasWaitingForInitialConnection)
+        {
+            Debug.LogWarning(
+                "Sequence client failed to connect " +
+                "before joining."
+            );
+
+            Action<string> callback =
+                clientConnectionFailedCallback;
+
+            ClearPendingCallbacks();
+
+            callback?.Invoke(
+                "Could not connect to the host."
+            );
+
+            return;
+        }
+
+        // This was a client that HAD joined successfully
+        // and later lost the connection.
+        Debug.LogWarning(
+            "Sequence client connection was lost. " +
+            "Rejoin is available."
+        );
 
         ClearPendingCallbacks();
 
-        callback?.Invoke(
-            "Could not connect to the host."
-        );
+        OnLocalClientDisconnected?.Invoke();
     }
 
     // =========================================================
@@ -242,6 +294,9 @@ public class SequenceNetworkBootstrap : MonoBehaviour
 
     public void Shutdown()
     {
+        intentionalShutdown =
+            true;
+
         CleanupClientCallbacks();
 
         ClearPendingCallbacks();

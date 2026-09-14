@@ -17,6 +17,18 @@ public class NetworkLobbyBridge : NetworkBehaviour
     [SerializeField]
     private NetworkMatchState networkMatchState;
 
+    [Header("Session / Rejoin")]
+    [SerializeField]
+    private RoomSessionContext roomSessionContext;
+
+    [SerializeField]
+    private NetworkHandState networkHandState;
+
+    [SerializeField]
+    private NetworkGameplayBridge networkGameplayBridge;
+
+    private bool matchStarted = false;
+
     // =========================================================
     // TEMPORARY CONNECTION -> PLAYER MAPPING
     //
@@ -35,6 +47,18 @@ public class NetworkLobbyBridge : NetworkBehaviour
         clientToPlayerId =
             new Dictionary<ulong, int>();
 
+    // Rejoin token -> permanent PlayerId for the lifetime
+    // of this host/server session.
+    private readonly Dictionary<string, int>
+        rejoinTokenToPlayerId =
+            new Dictionary<string, int>(
+                StringComparer.Ordinal
+            );
+
+    private readonly Dictionary<int, string>
+        playerIdToRejoinToken =
+            new Dictionary<int, string>();
+
     // =========================================================
     // REQUEST CALLBACKS
     // =========================================================
@@ -51,6 +75,28 @@ public class NetworkLobbyBridge : NetworkBehaviour
     private readonly Dictionary<int, Action<AuthorityResult>>
         pendingStartMatchRequests =
             new Dictionary<int, Action<AuthorityResult>>();
+
+    private int nextSessionRegistrationRequestId = 1;
+
+    private readonly Dictionary<
+        int,
+        Action<bool, int, bool, bool, string>
+    > pendingSessionRegistrationRequests =
+        new Dictionary<
+            int,
+            Action<bool, int, bool, bool, string>
+        >();
+
+    private int nextStateSyncRequestId = 1;
+
+    private readonly Dictionary<
+        int,
+        Action<bool, string>
+    > pendingStateSyncRequests =
+        new Dictionary<
+            int,
+            Action<bool, string>
+        >();
 
     [ClientRpc]
     private void StartMatchResultClientRpc(
@@ -146,31 +192,21 @@ public class NetworkLobbyBridge : NetworkBehaviour
         if (!IsServer)
             return;
 
-        if (clientToPlayerId.ContainsKey(
-                clientId))
+        // Host/server local client is already Player 1.
+        if (clientId ==
+            NetworkManager.ServerClientId)
         {
             return;
         }
 
-        int assignedPlayerId =
-            FindNextAvailablePlayerId();
-
-        if (assignedPlayerId <= 0)
-        {
-            Debug.LogWarning(
-                $"No available PlayerId for NGO ClientId {clientId}."
-            );
-
-            return;
-        }
-
-        clientToPlayerId[
-            clientId
-        ] = assignedPlayerId;
-
+        // Remote clients are NOT assigned a PlayerId merely
+        // because a transport connection exists.
+        //
+        // They must prove identity with their persistent
+        // rejoin token first.
         Debug.Log(
-            $"NGO ClientId {clientId} " +
-            $"mapped to Player {assignedPlayerId}."
+            $"NGO ClientId {clientId} connected. " +
+            "Awaiting session registration."
         );
     }
 
@@ -184,14 +220,29 @@ public class NetworkLobbyBridge : NetworkBehaviour
                 clientId,
                 out int playerId))
         {
-            Debug.Log(
-                $"NGO ClientId {clientId} " +
-                $"disconnected from Player {playerId}."
-            );
-
             clientToPlayerId.Remove(
                 clientId
             );
+
+            bool hasReservedIdentity =
+                playerIdToRejoinToken.ContainsKey(
+                    playerId
+                );
+
+            Debug.LogWarning(
+                $"NGO ClientId {clientId} disconnected " +
+                $"from Player {playerId}. " +
+                $"ReservedForRejoin={hasReservedIdentity}"
+            );
+
+            // IMPORTANT:
+            // We intentionally do NOT remove:
+            //
+            // rejoinTokenToPlayerId
+            // playerIdToRejoinToken
+            //
+            // and GameManager keeps the authoritative
+            // Player object / hand / board / turn state.
         }
     }
 
@@ -204,20 +255,31 @@ public class NetworkLobbyBridge : NetworkBehaviour
              playerId <= lobbyManager.PlayerCount;
              playerId++)
         {
-            bool alreadyAssigned = false;
+            bool reserved =
+                playerIdToRejoinToken.ContainsKey(
+                    playerId
+                );
+
+            if (reserved)
+                continue;
+
+            bool currentlyConnected = false;
 
             foreach (
                 KeyValuePair<ulong, int> pair
                 in clientToPlayerId)
             {
-                if (pair.Value == playerId)
+                if (pair.Value ==
+                    playerId)
                 {
-                    alreadyAssigned = true;
+                    currentlyConnected =
+                        true;
+
                     break;
                 }
             }
 
-            if (!alreadyAssigned)
+            if (!currentlyConnected)
                 return playerId;
         }
 
@@ -862,6 +924,9 @@ private void HandleHostStartMatchRequest(
         );
     if (result.Success)
     {
+        matchStarted =
+            true;
+
         if (networkMatchState != null)
         {
             networkMatchState.SetPhase(
@@ -918,6 +983,19 @@ private void RequestStartMatchServerRpc(
             request
         );
 
+    if (result.Success)
+    {
+        matchStarted =
+            true;
+
+        if (networkMatchState != null)
+        {
+            networkMatchState.SetPhase(
+                MatchPhase.Playing
+            );
+        }
+    }
+
     Debug.Log(
         $"NETWORK start-match request: " +
         $"ClientId={senderClientId}, " +
@@ -952,6 +1030,510 @@ private void SendStartMatchResult(
         (int)result.Code,
         result.Message,
         target
+    );
+}
+
+
+// =========================================================
+// SESSION REGISTRATION / REJOIN
+// =========================================================
+
+public void RequestSessionRegistration(
+    string roomCode,
+    string rejoinToken,
+    Action<bool, int, bool, bool, string> onCompleted)
+{
+    if (!IsSpawned)
+    {
+        onCompleted?.Invoke(
+            false,
+            -1,
+            false,
+            false,
+            "Network lobby bridge is not ready."
+        );
+
+        return;
+    }
+
+    if (IsServer)
+    {
+        onCompleted?.Invoke(
+            false,
+            1,
+            false,
+            matchStarted,
+            "Host does not need remote session registration."
+        );
+
+        return;
+    }
+
+    if (string.IsNullOrWhiteSpace(
+            rejoinToken))
+    {
+        onCompleted?.Invoke(
+            false,
+            -1,
+            false,
+            false,
+            "Rejoin identity is missing."
+        );
+
+        return;
+    }
+
+    int requestId =
+        nextSessionRegistrationRequestId++;
+
+    pendingSessionRegistrationRequests[
+        requestId
+    ] = onCompleted;
+
+    RequestSessionRegistrationServerRpc(
+        requestId,
+        roomCode,
+        rejoinToken
+    );
+}
+
+[ServerRpc(RequireOwnership = false)]
+private void RequestSessionRegistrationServerRpc(
+    int requestId,
+    string roomCode,
+    string rejoinToken,
+    ServerRpcParams rpcParams = default)
+{
+    ulong senderClientId =
+        rpcParams.Receive.SenderClientId;
+
+    string normalizedRoomCode =
+        string.IsNullOrWhiteSpace(
+            roomCode)
+            ? ""
+            : roomCode
+                .Trim()
+                .ToUpperInvariant();
+
+    string normalizedToken =
+        string.IsNullOrWhiteSpace(
+            rejoinToken)
+            ? ""
+            : rejoinToken.Trim();
+
+    if (string.IsNullOrWhiteSpace(
+            normalizedToken))
+    {
+        SendSessionRegistrationResult(
+            senderClientId,
+            requestId,
+            false,
+            -1,
+            false,
+            matchStarted,
+            "Rejoin identity is missing."
+        );
+
+        return;
+    }
+
+    // Validate the cosmetic/local room code against the
+    // host's current room context when available.
+    if (roomSessionContext != null &&
+        roomSessionContext.HasRoom)
+    {
+        string authoritativeRoomCode =
+            roomSessionContext.RoomCode
+                .Trim()
+                .ToUpperInvariant();
+
+        if (!string.Equals(
+                authoritativeRoomCode,
+                normalizedRoomCode,
+                StringComparison.Ordinal))
+        {
+            SendSessionRegistrationResult(
+                senderClientId,
+                requestId,
+                false,
+                -1,
+                false,
+                matchStarted,
+                "Room code does not match this host."
+            );
+
+            return;
+        }
+    }
+
+    // If this connection was already registered,
+    // simply return its current identity.
+    if (clientToPlayerId.TryGetValue(
+            senderClientId,
+            out int existingClientPlayerId))
+    {
+        bool existingWasRejoin =
+            playerIdToRejoinToken.ContainsKey(
+                existingClientPlayerId
+            );
+
+        SendSessionRegistrationResult(
+            senderClientId,
+            requestId,
+            true,
+            existingClientPlayerId,
+            existingWasRejoin,
+            matchStarted,
+            "Session identity already registered."
+        );
+
+        return;
+    }
+
+    bool isRejoin = false;
+    int playerId = -1;
+
+    // =====================================================
+    // REJOIN: TOKEN ALREADY BELONGS TO A PLAYER
+    // =====================================================
+
+    if (rejoinTokenToPlayerId.TryGetValue(
+            normalizedToken,
+            out int reservedPlayerId))
+    {
+        playerId =
+            reservedPlayerId;
+
+        // The same PlayerId may not be actively connected
+        // from two clients at once.
+        foreach (
+            KeyValuePair<ulong, int> pair
+            in clientToPlayerId)
+        {
+            if (pair.Value ==
+                playerId)
+            {
+                SendSessionRegistrationResult(
+                    senderClientId,
+                    requestId,
+                    false,
+                    -1,
+                    true,
+                    matchStarted,
+                    $"Player {playerId} is already connected."
+                );
+
+                return;
+            }
+        }
+
+        isRejoin =
+            true;
+    }
+
+    // =====================================================
+    // FIRST JOIN: CREATE A RESERVED PLAYER IDENTITY
+    // =====================================================
+
+    else
+    {
+        // Once the match has started, unknown tokens are not
+        // allowed to enter as brand-new players.
+        if (matchStarted)
+        {
+            SendSessionRegistrationResult(
+                senderClientId,
+                requestId,
+                false,
+                -1,
+                false,
+                true,
+                "Match is already in progress and this device " +
+                "does not have a recognized rejoin identity."
+            );
+
+            return;
+        }
+
+        playerId =
+            FindNextAvailablePlayerId();
+
+        if (playerId <= 0)
+        {
+            SendSessionRegistrationResult(
+                senderClientId,
+                requestId,
+                false,
+                -1,
+                false,
+                false,
+                "No player slot is available."
+            );
+
+            return;
+        }
+
+        rejoinTokenToPlayerId[
+            normalizedToken
+        ] = playerId;
+
+        playerIdToRejoinToken[
+            playerId
+        ] = normalizedToken;
+    }
+
+    clientToPlayerId[
+        senderClientId
+    ] = playerId;
+
+    Debug.LogWarning(
+        isRejoin
+            ? $"REJOIN REGISTERED: ClientId={senderClientId} " +
+              $"restored as Player {playerId}."
+            : $"SESSION REGISTERED: ClientId={senderClientId} " +
+              $"assigned to Player {playerId}."
+    );
+
+    SendSessionRegistrationResult(
+        senderClientId,
+        requestId,
+        true,
+        playerId,
+        isRejoin,
+        matchStarted,
+        isRejoin
+            ? $"Rejoined as Player {playerId}."
+            : $"Joined as Player {playerId}."
+    );
+}
+
+private void SendSessionRegistrationResult(
+    ulong targetClientId,
+    int requestId,
+    bool success,
+    int playerId,
+    bool isRejoin,
+    bool isMatchInProgress,
+    string message)
+{
+    ClientRpcParams target =
+        CreateTargetClientRpcParams(
+            targetClientId
+        );
+
+    SessionRegistrationResultClientRpc(
+        requestId,
+        success,
+        playerId,
+        isRejoin,
+        isMatchInProgress,
+        message,
+        target
+    );
+}
+
+[ClientRpc]
+private void SessionRegistrationResultClientRpc(
+    int requestId,
+    bool success,
+    int playerId,
+    bool isRejoin,
+    bool isMatchInProgress,
+    string message,
+    ClientRpcParams clientRpcParams = default)
+{
+    if (IsServer)
+        return;
+
+    if (!pendingSessionRegistrationRequests.TryGetValue(
+            requestId,
+            out Action<bool, int, bool, bool, string> callback))
+    {
+        return;
+    }
+
+    pendingSessionRegistrationRequests.Remove(
+        requestId
+    );
+
+    callback?.Invoke(
+        success,
+        playerId,
+        isRejoin,
+        isMatchInProgress,
+        message
+    );
+}
+
+// =========================================================
+// REQUEST FULL CURRENT MATCH STATE AFTER REJOIN
+// =========================================================
+
+public void RequestCurrentMatchStateSync(
+    Action<bool, string> onCompleted)
+{
+    if (!IsSpawned)
+    {
+        onCompleted?.Invoke(
+            false,
+            "Network lobby bridge is not ready."
+        );
+
+        return;
+    }
+
+    if (IsServer)
+    {
+        onCompleted?.Invoke(
+            false,
+            "Host does not need rejoin state synchronization."
+        );
+
+        return;
+    }
+
+    int requestId =
+        nextStateSyncRequestId++;
+
+    pendingStateSyncRequests[
+        requestId
+    ] = onCompleted;
+
+    RequestCurrentMatchStateSyncServerRpc(
+        requestId
+    );
+}
+
+[ServerRpc(RequireOwnership = false)]
+private void RequestCurrentMatchStateSyncServerRpc(
+    int requestId,
+    ServerRpcParams rpcParams = default)
+{
+    ulong senderClientId =
+        rpcParams.Receive.SenderClientId;
+
+    if (!TryGetPlayerIdForClient(
+            senderClientId,
+            out int playerId))
+    {
+        SendStateSyncResult(
+            senderClientId,
+            requestId,
+            false,
+            "This connection has no registered PlayerId."
+        );
+
+        return;
+    }
+
+    if (!matchStarted)
+    {
+        SendStateSyncResult(
+            senderClientId,
+            requestId,
+            false,
+            "The match has not started."
+        );
+
+        return;
+    }
+
+    if (networkGameplayBridge == null)
+    {
+        SendStateSyncResult(
+            senderClientId,
+            requestId,
+            false,
+            "NetworkGameplayBridge is unavailable."
+        );
+
+        return;
+    }
+
+    if (networkHandState == null)
+    {
+        SendStateSyncResult(
+            senderClientId,
+            requestId,
+            false,
+            "NetworkHandState is unavailable."
+        );
+
+        return;
+    }
+
+    // Public NetworkVariables such as phase, current turn,
+    // public sequence counts, and winner automatically sync
+    // when the client reconnects.
+    //
+    // These two pieces need explicit refresh:
+    //
+    // 1. full board snapshot
+    // 2. this player's private hand
+    networkGameplayBridge.SendFullBoardSnapshotToPlayer(
+        playerId
+    );
+
+    networkHandState.SendHandToPlayer(
+        playerId
+    );
+
+    Debug.LogWarning(
+        $"REJOIN STATE sent to Player {playerId} " +
+        $"(ClientId={senderClientId})."
+    );
+
+    SendStateSyncResult(
+        senderClientId,
+        requestId,
+        true,
+        $"Player {playerId} match state restored."
+    );
+}
+
+private void SendStateSyncResult(
+    ulong targetClientId,
+    int requestId,
+    bool success,
+    string message)
+{
+    ClientRpcParams target =
+        CreateTargetClientRpcParams(
+            targetClientId
+        );
+
+    StateSyncResultClientRpc(
+        requestId,
+        success,
+        message,
+        target
+    );
+}
+
+[ClientRpc]
+private void StateSyncResultClientRpc(
+    int requestId,
+    bool success,
+    string message,
+    ClientRpcParams clientRpcParams = default)
+{
+    if (IsServer)
+        return;
+
+    if (!pendingStateSyncRequests.TryGetValue(
+            requestId,
+            out Action<bool, string> callback))
+    {
+        return;
+    }
+
+    pendingStateSyncRequests.Remove(
+        requestId
+    );
+
+    callback?.Invoke(
+        success,
+        message
     );
 }
 

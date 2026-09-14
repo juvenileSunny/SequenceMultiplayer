@@ -3090,6 +3090,9 @@ MonoBehaviour:
   lobbyAuthority: {fileID: 1234614213}
   lobbyManager: {fileID: 1230265247}
   networkMatchState: {fileID: 641753826}
+  roomSessionContext: {fileID: 1552829690}
+  networkHandState: {fileID: 641753828}
+  networkGameplayBridge: {fileID: 641753829}
 --- !u!114 &641753826
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7015,6 +7018,7 @@ MonoBehaviour:
   roomCode: 
   localPlayerId: -1
   hostPlayerId: -1
+  rejoinToken: 
 --- !u!4 &1552829691
 Transform:
   m_ObjectHideFlags: 0
@@ -9112,6 +9116,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   roomSessionContext: {fileID: 1552829690}
   networkBootstrap: {fileID: 82398086}
+  networkLobbyBridge: {fileID: 641753825}
   roomEntryPanel: {fileID: 1865555552}
   lobbyPanel: {fileID: 532031805}
   boardPanel: {fileID: 7393643236964312922}
@@ -9122,7 +9127,6 @@ MonoBehaviour:
   joinRoomButton: {fileID: 90109786}
   roomMessageText: {fileID: 254498850}
   temporaryHostPlayerId: 1
-  temporaryJoiningPlayerId: 2
 --- !u!1 &1874928215
 GameObject:
   m_ObjectHideFlags: 0
