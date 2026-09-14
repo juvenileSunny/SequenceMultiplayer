@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 public class BoardManager : MonoBehaviour
@@ -7,6 +8,14 @@ public class BoardManager : MonoBehaviour
     [Header("Board UI")]
     [SerializeField] private Transform boardContainer;
     [SerializeField] private BoardCellView boardCellPrefab;
+
+    [Header("Network")]
+    [SerializeField]
+    private NetworkGameState networkGameState;
+    [SerializeField]
+    private NetworkGameplayBridge networkGameplayBridge;
+
+
 
     [Header("Features")]
     [SerializeField] private bool showLegalMoveHighlights = true;
@@ -30,6 +39,7 @@ public class BoardManager : MonoBehaviour
     // Fired after any successful play:
     // normal card, two-eyed Jack, or one-eyed Jack.
     public event Action<Card, BoardCell> OnMoveCompleted;
+    public event Action<BoardCell> OnBoardCellChanged;
 
     // Key = TeamId
     // Value = completed Sequences belonging to that team.
@@ -49,6 +59,37 @@ public class BoardManager : MonoBehaviour
     private void Awake()
     {
         CreateBoard();
+    }
+
+    private void OnEnable()
+    {
+        if (networkGameState != null)
+        {
+            networkGameState.OnCurrentPlayerChanged +=
+                HandleNetworkTurnChanged;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (networkGameState != null)
+        {
+            networkGameState.OnCurrentPlayerChanged -=
+                HandleNetworkTurnChanged;
+        }
+    }
+
+    private void HandleNetworkTurnChanged(
+        int previousPlayerId,
+        int newPlayerId)
+    {
+        if (networkGameState == null)
+            return;
+
+        SetCurrentPlayer(
+            networkGameState.CurrentPlayerId,
+            networkGameState.CurrentTeamId
+        );
     }
 
     // =========================================================
@@ -121,6 +162,71 @@ public class BoardManager : MonoBehaviour
     private void OnCellClicked(
         BoardCellView cellView)
     {
+        NetworkManager networkManager =
+            NetworkManager.Singleton;
+
+        if (networkManager != null &&
+            networkManager.IsListening &&
+            networkManager.IsClient &&
+            !networkManager.IsServer)
+        {
+            if (cellView == null)
+                return;
+
+            BoardCell networkTargetCell =
+                cellView.Cell;
+
+            if (networkTargetCell == null)
+                return;
+
+            if (selectedCard == null)
+            {
+                Debug.Log(
+                    "Select a card from your hand first."
+                );
+
+                return;
+            }
+
+            if (networkGameplayBridge == null)
+            {
+                Debug.LogError(
+                    "NetworkGameplayBridge is not assigned."
+                );
+
+                return;
+            }
+
+            string requestedCardCode =
+                selectedCard.GetCode();
+
+            networkGameplayBridge.RequestPlayCard(
+                requestedCardCode,
+                networkTargetCell.Row,
+                networkTargetCell.Column,
+                (success, message) =>
+                {
+                    if (success)
+                    {
+                        Debug.Log(
+                            $"SERVER accepted " +
+                            $"{requestedCardCode}."
+                        );
+
+                        ClearHighlights();
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            $"SERVER rejected move: " +
+                            $"{message}"
+                        );
+                    }
+                }
+            );
+
+            return;
+        }
         if (boardLocked)
         {
             Debug.Log(
@@ -184,6 +290,243 @@ public class BoardManager : MonoBehaviour
         HandleNormalCard(
             cellView
         );
+    }
+
+    // =========================================================
+    // SERVER AUTHORITATIVE MOVE
+    // =========================================================
+
+    public bool TryExecuteAuthoritativeMove(
+        Card card,
+        int playerId,
+        int teamId,
+        int row,
+        int column,
+        out string error)
+    {
+        error = "";
+
+        if (card == null)
+        {
+            error =
+                "Card is null.";
+
+            return false;
+        }
+
+        if (boardLocked)
+        {
+            error =
+                "The game board is locked.";
+
+            return false;
+        }
+
+        if (board == null ||
+            !board.IsValidPosition(
+                row,
+                column))
+        {
+            error =
+                "Invalid board position.";
+
+            return false;
+        }
+
+        BoardCell cell =
+            board.GetCell(
+                row,
+                column
+            );
+
+        BoardCellView view =
+            cellViews[
+                row,
+                column
+            ];
+
+        if (cell == null ||
+            view == null)
+        {
+            error =
+                "Board cell is unavailable.";
+
+            return false;
+        }
+
+        if (cell.IsCorner)
+        {
+            error =
+                "Sequence corners cannot be targeted.";
+
+            return false;
+        }
+
+        // =====================================================
+        // VALIDATE BEFORE CHANGING AUTHORITATIVE BOARD STATE
+        // =====================================================
+
+        if (card.IsTwoEyedJack())
+        {
+            if (cell.IsOccupied)
+            {
+                error =
+                    "Two-eyed Jack requires an empty space.";
+
+                return false;
+            }
+        }
+        else if (card.IsOneEyedJack())
+        {
+            if (!cell.IsOccupied)
+            {
+                error =
+                    "One-eyed Jack requires an opponent chip.";
+
+                return false;
+            }
+
+            if (cell.OwnerTeamId ==
+                teamId)
+            {
+                error =
+                    "Cannot remove your own team's chip.";
+
+                return false;
+            }
+
+            if (cell.IsPartOfCompletedSequence)
+            {
+                error =
+                    "Completed Sequence chips are protected.";
+
+                return false;
+            }
+        }
+        else
+        {
+            if (cell.IsOccupied)
+            {
+                error =
+                    "That board position is occupied.";
+
+                return false;
+            }
+
+            if (cell.Card == null)
+            {
+                error =
+                    "This board position has no card.";
+
+                return false;
+            }
+
+            bool matches =
+                cell.Card.Rank == card.Rank &&
+                cell.Card.Suit == card.Suit;
+
+            if (!matches)
+            {
+                error =
+                    $"Card {card.GetCode()} " +
+                    "does not match this position.";
+
+                return false;
+            }
+        }
+
+        // =====================================================
+        // SERVER HAS APPROVED THE MOVE
+        //
+        // Reuse the existing local board pipeline so Jacks,
+        // move completion, sequence detection, draw, and turn
+        // advancement remain in one authoritative implementation.
+        // =====================================================
+
+        currentPlayerId =
+            playerId;
+
+        currentTeamId =
+            teamId;
+
+        selectedCard =
+            card;
+
+        if (card.IsOneEyedJack())
+        {
+            RemoveChipWithJack(
+                view
+            );
+        }
+        else
+        {
+            PlaceChip(
+                view
+            );
+        }
+
+        return true;
+    }
+
+    // =========================================================
+    // APPLY AUTHORITATIVE NETWORK BOARD STATE
+    //
+    // Remote clients use this only for presentation.
+    // They never decide ownership themselves.
+    // =========================================================
+
+    public void ApplyNetworkCellState(
+        int row,
+        int column,
+        int ownerTeamId,
+        bool isPartOfCompletedSequence)
+    {
+        if (board == null)
+            return;
+
+        if (!board.IsValidPosition(
+                row,
+                column))
+        {
+            return;
+        }
+
+        BoardCell cell =
+            board.GetCell(
+                row,
+                column
+            );
+
+        if (cell == null)
+            return;
+
+        if (ownerTeamId > 0)
+        {
+            cell.SetOwnerTeam(
+                ownerTeamId
+            );
+        }
+        else
+        {
+            cell.ClearOwner();
+        }
+
+        if (isPartOfCompletedSequence &&
+            !cell.IsCorner)
+        {
+            cell.MarkAsCompletedSequence();
+        }
+
+        BoardCellView view =
+            cellViews[
+                row,
+                column
+            ];
+
+        if (view != null)
+        {
+            view.UpdateVisual();
+        }
     }
 
     // =========================================================
@@ -359,6 +702,9 @@ public class BoardManager : MonoBehaviour
         );
 
         cellView.UpdateVisual();
+        OnBoardCellChanged?.Invoke(
+            cell
+        );
 
         Debug.Log(
             $"Player {currentPlayerId} " +
@@ -395,6 +741,9 @@ public class BoardManager : MonoBehaviour
         cell.ClearOwner();
 
         cellView.UpdateVisual();
+        OnBoardCellChanged?.Invoke(
+            cell
+        );
 
         Debug.Log(
             $"Player {currentPlayerId} " +
@@ -1015,6 +1364,10 @@ public class BoardManager : MonoBehaviour
                 {
                     view.UpdateVisual();
                 }
+
+                OnBoardCellChanged?.Invoke(
+                    cell
+                );
             }
 
             registered++;

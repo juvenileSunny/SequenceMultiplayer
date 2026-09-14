@@ -6,9 +6,6 @@ public class NetworkGameState : NetworkBehaviour
 {
     // =========================================================
     // CURRENT TURN
-    //
-    // Everyone can read.
-    // Only the server can write.
     // =========================================================
 
     private NetworkVariable<int> currentPlayerId =
@@ -33,11 +30,60 @@ public class NetworkGameState : NetworkBehaviour
         );
 
     // =========================================================
+    // PUBLIC MATCH STATUS
+    // =========================================================
+
+    private NetworkVariable<int> teamCount =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    private NetworkVariable<int> team1Sequences =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    private NetworkVariable<int> team2Sequences =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    private NetworkVariable<int> team3Sequences =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    private NetworkVariable<int> sequencesNeededToWin =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    private NetworkVariable<int> winnerTeamId =
+        new NetworkVariable<int>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+
+    // =========================================================
     // EVENTS
     // =========================================================
 
     public event Action<int, int>
         OnCurrentPlayerChanged;
+
+    public event Action
+        OnPublicGameStateChanged;
 
     // =========================================================
     // PUBLIC READ-ONLY STATE
@@ -52,6 +98,24 @@ public class NetworkGameState : NetworkBehaviour
     public int CurrentTeamId =>
         currentTeamId.Value;
 
+    public int TeamCount =>
+        teamCount.Value;
+
+    public int Team1Sequences =>
+        team1Sequences.Value;
+
+    public int Team2Sequences =>
+        team2Sequences.Value;
+
+    public int Team3Sequences =>
+        team3Sequences.Value;
+
+    public int SequencesNeededToWin =>
+        sequencesNeededToWin.Value;
+
+    public int WinnerTeamId =>
+        winnerTeamId.Value;
+
     // =========================================================
     // NETWORK SPAWN
     // =========================================================
@@ -63,10 +127,36 @@ public class NetworkGameState : NetworkBehaviour
         currentPlayerId.OnValueChanged +=
             HandleCurrentPlayerChanged;
 
+        currentSeatIndex.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        currentTeamId.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        teamCount.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        team1Sequences.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        team2Sequences.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        team3Sequences.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        sequencesNeededToWin.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
+        winnerTeamId.OnValueChanged +=
+            HandleAnyPublicStateChanged;
+
         Debug.Log(
             $"NetworkGameState spawned. " +
             $"Current Player = {currentPlayerId.Value}"
         );
+
+        OnPublicGameStateChanged?.Invoke();
     }
 
     public override void OnNetworkDespawn()
@@ -74,11 +164,35 @@ public class NetworkGameState : NetworkBehaviour
         currentPlayerId.OnValueChanged -=
             HandleCurrentPlayerChanged;
 
+        currentSeatIndex.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        currentTeamId.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        teamCount.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        team1Sequences.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        team2Sequences.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        team3Sequences.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        sequencesNeededToWin.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
+        winnerTeamId.OnValueChanged -=
+            HandleAnyPublicStateChanged;
+
         base.OnNetworkDespawn();
     }
 
     // =========================================================
-    // SERVER ONLY — SET CURRENT TURN
+    // SERVER — CURRENT TURN
     // =========================================================
 
     public void SetCurrentTurn(
@@ -95,17 +209,17 @@ public class NetworkGameState : NetworkBehaviour
             return;
         }
 
-        int previousPlayerId =
-            currentPlayerId.Value;
-
-        currentPlayerId.Value =
-            playerId;
-
+        // Set supporting information FIRST.
         currentSeatIndex.Value =
             seatIndex;
 
         currentTeamId.Value =
             teamId;
+
+        // Player is changed last so turn listeners
+        // see the correct seat/team values.
+        currentPlayerId.Value =
+            playerId;
 
         Debug.Log(
             $"SERVER CURRENT TURN: " +
@@ -113,13 +227,73 @@ public class NetworkGameState : NetworkBehaviour
             $"Seat {seatIndex}, " +
             $"Team {teamId}"
         );
-
-        // OnValueChanged handles the normal network notification.
-        // This log simply helps us debug the authoritative server.
     }
 
     // =========================================================
-    // NETWORK CHANGE
+    // SERVER — PUBLIC MATCH STATUS
+    // =========================================================
+
+    public void SetPublicMatchStatus(
+        int numberOfTeams,
+        int redSequences,
+        int blueSequences,
+        int greenSequences,
+        int requiredSequences)
+    {
+        if (!IsServer)
+        {
+            Debug.LogWarning(
+                "Only the server may change public match status."
+            );
+
+            return;
+        }
+
+        teamCount.Value =
+            numberOfTeams;
+
+        team1Sequences.Value =
+            redSequences;
+
+        team2Sequences.Value =
+            blueSequences;
+
+        team3Sequences.Value =
+            greenSequences;
+
+        sequencesNeededToWin.Value =
+            requiredSequences;
+
+        Debug.Log(
+            $"SERVER STATUS: " +
+            $"Teams={numberOfTeams}, " +
+            $"Red={redSequences}, " +
+            $"Blue={blueSequences}, " +
+            $"Green={greenSequences}, " +
+            $"Need={requiredSequences}"
+        );
+    }
+
+    // =========================================================
+    // SERVER — WINNER
+    // =========================================================
+
+    public void SetWinner(
+        int teamId)
+    {
+        if (!IsServer)
+            return;
+
+        winnerTeamId.Value =
+            teamId;
+
+        Debug.Log(
+            $"SERVER WINNER: Team {teamId}"
+        );
+    }
+
+    // =========================================================
+    // NETWORK CHANGE HANDLERS
     // =========================================================
 
     private void HandleCurrentPlayerChanged(
@@ -136,5 +310,14 @@ public class NetworkGameState : NetworkBehaviour
             previousPlayerId,
             newPlayerId
         );
+
+        OnPublicGameStateChanged?.Invoke();
+    }
+
+    private void HandleAnyPublicStateChanged(
+        int previousValue,
+        int newValue)
+    {
+        OnPublicGameStateChanged?.Invoke();
     }
 }

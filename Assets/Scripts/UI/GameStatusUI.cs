@@ -3,16 +3,87 @@ using UnityEngine;
 
 public class GameStatusUI : MonoBehaviour
 {
+    [Header("Network")]
+    [SerializeField]
+    private NetworkGameState networkGameState;
+
     [Header("Turn")]
-    [SerializeField] private TMP_Text currentTurnText;
+    [SerializeField]
+    private TMP_Text currentTurnText;
 
     [Header("Sequence Counts")]
-    [SerializeField] private TMP_Text team1SequenceText;
-    [SerializeField] private TMP_Text team2SequenceText;
-    [SerializeField] private TMP_Text team3SequenceText;
+    [SerializeField]
+    private TMP_Text team1SequenceText;
+
+    [SerializeField]
+    private TMP_Text team2SequenceText;
+
+    [SerializeField]
+    private TMP_Text team3SequenceText;
 
     // =========================================================
-    // MAIN UPDATE
+    // NETWORK EVENTS
+    // =========================================================
+
+    private void OnEnable()
+    {
+        if (networkGameState != null)
+        {
+            networkGameState.OnPublicGameStateChanged +=
+                RefreshFromNetworkState;
+        }
+
+        RefreshFromNetworkState();
+    }
+
+    private void OnDisable()
+    {
+        if (networkGameState != null)
+        {
+            networkGameState.OnPublicGameStateChanged -=
+                RefreshFromNetworkState;
+        }
+    }
+
+    // =========================================================
+    // NETWORK STATUS
+    // =========================================================
+
+    private void RefreshFromNetworkState()
+    {
+        if (networkGameState == null)
+            return;
+
+        UpdateSequenceText(
+            networkGameState.TeamCount,
+            networkGameState.Team1Sequences,
+            networkGameState.Team2Sequences,
+            networkGameState.Team3Sequences,
+            networkGameState.SequencesNeededToWin
+        );
+
+        if (networkGameState.WinnerTeamId > 0)
+        {
+            ShowWinner(
+                networkGameState.WinnerTeamId
+            );
+
+            return;
+        }
+
+        if (networkGameState.CurrentPlayerId <= 0)
+            return;
+
+        UpdateTurnText(
+            networkGameState.CurrentPlayerId,
+            networkGameState.CurrentTeamId
+        );
+    }
+
+    // =========================================================
+    // LOCAL / LEGACY UPDATE
+    //
+    // Keep this because GameManager currently uses it too.
     // =========================================================
 
     public void UpdateStatus(
@@ -27,7 +98,8 @@ public class GameStatusUI : MonoBehaviour
             return;
 
         UpdateTurnText(
-            currentPlayer
+            currentPlayer.PlayerId,
+            currentPlayer.TeamId
         );
 
         UpdateSequenceText(
@@ -44,18 +116,19 @@ public class GameStatusUI : MonoBehaviour
     // =========================================================
 
     private void UpdateTurnText(
-        Player player)
+        int playerId,
+        int teamId)
     {
         if (currentTurnText == null)
             return;
 
         string teamName =
             GetTeamName(
-                player.TeamId
+                teamId
             );
 
         currentTurnText.text =
-            $"Player {player.PlayerId} • " +
+            $"Player {playerId} • " +
             $"{teamName} • Turn";
     }
 
@@ -70,6 +143,9 @@ public class GameStatusUI : MonoBehaviour
         int team3Sequences,
         int sequencesNeededToWin)
     {
+        if (sequencesNeededToWin <= 0)
+            return;
+
         if (team1SequenceText != null)
         {
             team1SequenceText.text =
@@ -127,7 +203,7 @@ public class GameStatusUI : MonoBehaviour
     }
 
     // =========================================================
-    // GAME OVER DISPLAY
+    // WINNER
     // =========================================================
 
     public void ShowWinner(

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 public class GameManager : MonoBehaviour
@@ -25,6 +26,12 @@ public class GameManager : MonoBehaviour
     [Header("Network State")]
     [SerializeField]
     private NetworkGameState networkGameState;
+    [SerializeField]
+    private NetworkHandState networkHandState;
+    [SerializeField]
+    private RoomSessionContext roomSessionContext;
+    [SerializeField]
+    private NetworkGameplayBridge networkGameplayBridge;
 
     [Header("UI")]
     [SerializeField] private GameStatusUI gameStatusUI;
@@ -45,6 +52,77 @@ public class GameManager : MonoBehaviour
     private bool deadCardReplacedThisTurn = false;
     private bool gameOver = false;
 
+    // =========================================================
+    // LOCAL PLAYER HAND
+    // =========================================================
+
+    private void ShowLocalPlayerHand()
+    {
+        if (roomSessionContext == null)
+        {
+            Debug.LogWarning(
+                "GameManager: RoomSessionContext is missing."
+            );
+
+            return;
+        }
+
+        if (!roomSessionContext.HasLocalPlayer)
+        {
+            Debug.LogWarning(
+                "GameManager: Local player identity is unavailable."
+            );
+
+            return;
+        }
+
+        int localPlayerId =
+            roomSessionContext.LocalPlayerId;
+
+        Player localPlayer =
+            GetPlayer(localPlayerId);
+
+        if (localPlayer == null)
+        {
+            // This is normal on a remote client for now,
+            // because only the server currently creates the
+            // authoritative Player objects.
+            Debug.Log(
+                $"No authoritative Player object exists locally " +
+                $"for Player {localPlayerId}."
+            );
+
+            return;
+        }
+
+        handManager.Initialize(
+            localPlayer
+        );
+
+        Debug.Log(
+            $"Showing LOCAL Player {localPlayer.PlayerId}'s hand " +
+            $"(Team {localPlayer.TeamId}, " +
+            $"Seat {localPlayer.SeatIndex})."
+        );
+    }
+
+    private void RefreshLocalHandIfOwnedBy(
+        int playerId)
+    {
+        if (roomSessionContext == null)
+            return;
+
+        if (!roomSessionContext.HasLocalPlayer)
+            return;
+
+        if (roomSessionContext.LocalPlayerId !=
+            playerId)
+        {
+            return;
+        }
+
+        ShowLocalPlayerHand();
+    }
     // =========================================================
     // LOCAL NETWORK INPUT
     //
@@ -123,6 +201,45 @@ public class GameManager : MonoBehaviour
             localConfig
         );
     }
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+    private void Update()
+    {
+        // During a network game, only the authoritative
+        // server is allowed to change player hands.
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening &&
+            !NetworkManager.Singleton.IsServer)
+        {
+            return;
+        }
+
+        // F2 = Two-eyed Jack, Clubs
+        if (Input.GetKeyDown(KeyCode.F2))
+        {
+            DebugGiveCurrentPlayerCard("JC");
+        }
+
+        // F3 = Two-eyed Jack, Diamonds
+        if (Input.GetKeyDown(KeyCode.F3))
+        {
+            DebugGiveCurrentPlayerCard("JD");
+        }
+
+        // F4 = One-eyed Jack, Hearts
+        if (Input.GetKeyDown(KeyCode.F4))
+        {
+            DebugGiveCurrentPlayerCard("JH");
+        }
+
+        // F5 = One-eyed Jack, Spades
+        if (Input.GetKeyDown(KeyCode.F5))
+        {
+            DebugGiveCurrentPlayerCard("JS");
+        }
+    }
+
+    #endif
 
     // =========================================================
     // PUBLIC GAME START
@@ -205,6 +322,13 @@ public class GameManager : MonoBehaviour
 
         DealCards();
 
+        // Send each remote player only their own
+        // server-authoritative private hand.
+        if (networkHandState != null)
+        {
+            networkHandState.SendInitialHands();
+        }
+
         // -----------------------------------------------------
         // FIRST TURN = SEAT 1
         // -----------------------------------------------------
@@ -229,9 +353,7 @@ public class GameManager : MonoBehaviour
 
         SetBoardForCurrentPlayer();
 
-        ShowPlayerHand(
-            currentPlayerId
-        );
+        ShowLocalPlayerHand();
         // Publish the authoritative first turn.
         SyncCurrentTurnToNetwork();
         UpdateGameStatusUI();
@@ -298,8 +420,21 @@ public class GameManager : MonoBehaviour
     public void SetLocalTurnInputEnabled(
         bool enabled)
     {
+        bool wasEnabled =
+            localTurnInputEnabled;
+
         localTurnInputEnabled =
             enabled;
+
+        // A transition from another player's turn
+        // back to this local player's turn starts
+        // a fresh dead-card replacement allowance.
+        if (enabled &&
+            !wasEnabled)
+        {
+            deadCardReplacedThisTurn =
+                false;
+        }
 
         if (!enabled)
         {
@@ -407,6 +542,121 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
+    // SERVER AUTHORITATIVE NETWORK PLAY REQUEST
+    // =========================================================
+
+    public bool TryHandleNetworkPlayRequest(
+        int requestingPlayerId,
+        string cardCode,
+        int row,
+        int column,
+        out string error)
+    {
+        error = "";
+
+        if (sessionConfig == null)
+        {
+            error =
+                "The match has not started.";
+
+            return false;
+        }
+
+        if (gameOver)
+        {
+            error =
+                "The game is already over.";
+
+            return false;
+        }
+
+        // Never trust the client to decide whose turn it is.
+        if (requestingPlayerId !=
+            currentPlayerId)
+        {
+            error =
+                $"It is Player {currentPlayerId}'s turn.";
+
+            return false;
+        }
+
+        Player player =
+            GetPlayer(
+                requestingPlayerId
+            );
+
+        if (player == null)
+        {
+            error =
+                "Authoritative player does not exist.";
+
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(
+                cardCode))
+        {
+            error =
+                "Card code is missing.";
+
+            return false;
+        }
+
+        // =====================================================
+        // VERIFY THE PLAYER REALLY OWNS THIS CARD
+        //
+        // Use the actual Card instance from the server's hand.
+        // The client only supplies a card code.
+        // =====================================================
+
+        Card authoritativeCard =
+            null;
+
+        foreach (Card card in player.Hand)
+        {
+            if (card == null)
+                continue;
+
+            if (string.Equals(
+                    card.GetCode(),
+                    cardCode,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                authoritativeCard =
+                    card;
+
+                break;
+            }
+        }
+
+        if (authoritativeCard == null)
+        {
+            error =
+                $"Player {requestingPlayerId} " +
+                $"does not own {cardCode}.";
+
+            return false;
+        }
+
+        if (boardManager == null)
+        {
+            error =
+                "Server BoardManager is unavailable.";
+
+            return false;
+        }
+
+        return boardManager.TryExecuteAuthoritativeMove(
+            authoritativeCard,
+            player.PlayerId,
+            player.TeamId,
+            row,
+            column,
+            out error
+        );
+    }
+
+    // =========================================================
     // BOARD CURRENT PLAYER
     // =========================================================
 
@@ -437,10 +687,10 @@ public class GameManager : MonoBehaviour
 
     private void UpdateGameStatusUI()
     {
-        if (gameStatusUI == null)
+        if (sessionConfig == null)
             return;
 
-        if (sessionConfig == null)
+        if (boardManager == null)
             return;
 
         Player currentPlayer =
@@ -467,14 +717,38 @@ public class GameManager : MonoBehaviour
         int sequencesNeeded =
             GetSequencesNeededToWin();
 
-        gameStatusUI.UpdateStatus(
-            currentPlayer,
-            sessionConfig.TeamCount,
-            team1Sequences,
-            team2Sequences,
-            team3Sequences,
-            sequencesNeeded
-        );
+        // =====================================================
+        // AUTHORITATIVE NETWORK STATUS
+        // =====================================================
+
+        if (networkGameState != null &&
+            networkGameState.IsSpawned &&
+            networkGameState.IsServer)
+        {
+            networkGameState.SetPublicMatchStatus(
+                sessionConfig.TeamCount,
+                team1Sequences,
+                team2Sequences,
+                team3Sequences,
+                sequencesNeeded
+            );
+        }
+
+        // =====================================================
+        // LOCAL UI
+        // =====================================================
+
+        if (gameStatusUI != null)
+        {
+            gameStatusUI.UpdateStatus(
+                currentPlayer,
+                sessionConfig.TeamCount,
+                team1Sequences,
+                team2Sequences,
+                team3Sequences,
+                sequencesNeeded
+            );
+        }
     }
 
     // =========================================================
@@ -720,6 +994,10 @@ public class GameManager : MonoBehaviour
     private void HandleDeadCardRequested(
         Card deadCard)
     {
+        // =====================================================
+        // LOCAL TURN CHECK
+        // =====================================================
+
         if (!localTurnInputEnabled)
         {
             Debug.Log(
@@ -729,10 +1007,80 @@ public class GameManager : MonoBehaviour
 
             return;
         }
-                if (gameOver)
-            return;
 
         if (deadCard == null)
+            return;
+
+        // =====================================================
+        // REMOTE CLIENT
+        //
+        // Client does NOT modify its hand or draw a card.
+        // It asks the authoritative server.
+        // =====================================================
+
+        NetworkManager networkManager =
+            NetworkManager.Singleton;
+
+        bool isRemoteClient =
+            networkManager != null &&
+            networkManager.IsListening &&
+            networkManager.IsClient &&
+            !networkManager.IsServer;
+
+        if (isRemoteClient)
+        {
+            if (networkGameplayBridge == null)
+            {
+                Debug.LogError(
+                    "NetworkGameplayBridge is not assigned."
+                );
+
+                return;
+            }
+
+            string cardCode =
+                deadCard.GetCode();
+
+            networkGameplayBridge.RequestDeadCardReplacement(
+                cardCode,
+                (success, message) =>
+                {
+                    if (success)
+                    {
+                        // The authoritative server will send
+                        // the updated private hand separately.
+                        deadCardReplacedThisTurn =
+                            true;
+
+                        boardManager.ClearHighlights();
+
+                        handManager.SetDeadCardButtonState(
+                            false
+                        );
+
+                        Debug.Log(
+                            $"SERVER replaced dead card " +
+                            $"{cardCode}."
+                        );
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            $"SERVER rejected dead-card " +
+                            $"replacement: {message}"
+                        );
+                    }
+                }
+            );
+
+            return;
+        }
+
+        // =====================================================
+        // HOST / LOCAL AUTHORITATIVE PATH
+        // =====================================================
+
+        if (gameOver)
             return;
 
         if (deadCardReplacedThisTurn)
@@ -764,7 +1112,6 @@ public class GameManager : MonoBehaviour
         if (currentPlayer == null)
             return;
 
-        // Remove dead card.
         currentPlayer.RemoveCard(
             deadCard
         );
@@ -775,7 +1122,6 @@ public class GameManager : MonoBehaviour
             $"{deadCard.GetCode()}."
         );
 
-        // Draw replacement.
         Card replacementCard =
             deck.Draw();
 
@@ -804,9 +1150,8 @@ public class GameManager : MonoBehaviour
 
         boardManager.ClearHighlights();
 
-        // Player continues their normal turn.
-        ShowPlayerHand(
-            currentPlayerId
+        RefreshLocalHandIfOwnedBy(
+            currentPlayer.PlayerId
         );
 
         handManager.SetDeadCardButtonState(
@@ -819,7 +1164,193 @@ public class GameManager : MonoBehaviour
             "continues their turn."
         );
     }
+    // =========================================================
+    // SERVER AUTHORITATIVE DEAD CARD REPLACEMENT
+    // =========================================================
 
+    public bool TryHandleNetworkDeadCardReplacement(
+        int requestingPlayerId,
+        string cardCode,
+        out string error)
+    {
+        error = "";
+
+        // =====================================================
+        // MATCH VALIDATION
+        // =====================================================
+
+        if (sessionConfig == null)
+        {
+            error =
+                "The match has not started.";
+
+            return false;
+        }
+
+        if (gameOver)
+        {
+            error =
+                "The game is already over.";
+
+            return false;
+        }
+
+        // =====================================================
+        // TURN VALIDATION
+        // =====================================================
+
+        if (requestingPlayerId !=
+            currentPlayerId)
+        {
+            error =
+                $"It is Player {currentPlayerId}'s turn.";
+
+            return false;
+        }
+
+        if (deadCardReplacedThisTurn)
+        {
+            error =
+                "Dead-card replacement was already used this turn.";
+
+            return false;
+        }
+
+        // =====================================================
+        // PLAYER VALIDATION
+        // =====================================================
+
+        Player player =
+            GetPlayer(
+                requestingPlayerId
+            );
+
+        if (player == null)
+        {
+            error =
+                "Authoritative player does not exist.";
+
+            return false;
+        }
+
+        // =====================================================
+        // VERIFY THE CARD REALLY EXISTS IN SERVER HAND
+        // =====================================================
+
+        Card authoritativeCard =
+            null;
+
+        foreach (Card card in player.Hand)
+        {
+            if (card == null)
+                continue;
+
+            if (card.GetCode() ==
+                cardCode)
+            {
+                authoritativeCard =
+                    card;
+
+                break;
+            }
+        }
+
+        if (authoritativeCard == null)
+        {
+            error =
+                $"Player {requestingPlayerId} " +
+                $"does not own {cardCode}.";
+
+            return false;
+        }
+
+        // =====================================================
+        // SERVER DETERMINES WHETHER IT IS ACTUALLY DEAD
+        // =====================================================
+
+        if (boardManager == null)
+        {
+            error =
+                "Server BoardManager is unavailable.";
+
+            return false;
+        }
+
+        if (!boardManager.IsDeadCard(
+                authoritativeCard))
+        {
+            error =
+                $"{cardCode} is not a dead card.";
+
+            return false;
+        }
+
+        // =====================================================
+        // AUTHORITATIVE REPLACEMENT
+        // =====================================================
+
+        player.RemoveCard(
+            authoritativeCard
+        );
+
+        Debug.Log(
+            $"NETWORK: Player {player.PlayerId} " +
+            $"discarded dead card {cardCode}."
+        );
+
+        Card replacementCard =
+            deck.Draw();
+
+        if (replacementCard != null)
+        {
+            player.AddCard(
+                replacementCard
+            );
+
+            Debug.Log(
+                $"NETWORK: Player {player.PlayerId} " +
+                $"drew replacement " +
+                $"{replacementCard.GetCode()}."
+            );
+        }
+        else
+        {
+            Debug.Log(
+                "Deck is empty. " +
+                "No replacement card drawn."
+            );
+        }
+
+        deadCardReplacedThisTurn =
+            true;
+
+        boardManager.ClearHighlights();
+
+        // Host-owned hand, if applicable.
+        RefreshLocalHandIfOwnedBy(
+            player.PlayerId
+        );
+
+        // Remote owner receives only their updated private hand.
+        if (networkHandState != null)
+        {
+            networkHandState.SendHandToPlayer(
+                player.PlayerId
+            );
+        }
+
+        Debug.Log(
+            $"NETWORK DEAD CARD ACCEPTED: " +
+            $"Player {player.PlayerId} continues turn."
+        );
+
+        // IMPORTANT:
+        // DO NOT AdvanceTurn().
+        //
+        // Sequence rule:
+        // dead-card replacement does not consume the turn.
+        return true;
+    }
     // =========================================================
     // SUCCESSFUL BOARD PLAY
     // =========================================================
@@ -933,6 +1464,16 @@ public class GameManager : MonoBehaviour
             Debug.Log(
                 "Deck is empty. " +
                 "No replacement card drawn."
+            );
+        }
+        RefreshLocalHandIfOwnedBy(
+            currentPlayer.PlayerId
+        );
+
+        if (networkHandState != null)
+        {
+            networkHandState.SendHandToPlayer(
+                currentPlayer.PlayerId
             );
         }
 
@@ -1123,6 +1664,15 @@ public class GameManager : MonoBehaviour
             false
         );
 
+        if (networkGameState != null &&
+            networkGameState.IsSpawned &&
+            networkGameState.IsServer)
+        {
+            networkGameState.SetWinner(
+                winnerTeamId
+            );
+        }
+
         if (gameStatusUI != null)
         {
             gameStatusUI.ShowWinner(
@@ -1280,5 +1830,96 @@ public class GameManager : MonoBehaviour
             );
         }
     }
+    #endif
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+    private void DebugGiveCurrentPlayerCard(
+        string cardCode)
+    {
+        if (gameOver)
+        {
+            Debug.LogWarning(
+                "DEBUG CARD: Game is over."
+            );
+
+            return;
+        }
+
+        Player currentPlayer =
+            GetCurrentPlayer();
+
+        if (currentPlayer == null)
+        {
+            Debug.LogWarning(
+                "DEBUG CARD: No current player."
+            );
+
+            return;
+        }
+
+        if (!Card.TryFromCode(
+                cardCode,
+                out Card testCard))
+        {
+            Debug.LogWarning(
+                $"DEBUG CARD: Invalid card code {cardCode}."
+            );
+
+            return;
+        }
+
+        // -----------------------------------------------------
+        // REPLACE ONE EXISTING CARD
+        //
+        // We replace instead of adding so hand size stays
+        // correct.
+        // -----------------------------------------------------
+
+        if (currentPlayer.Hand.Count > 0)
+        {
+            Card removedCard =
+                currentPlayer.Hand[0];
+
+            currentPlayer.RemoveCard(
+                removedCard
+            );
+
+            Debug.Log(
+                $"DEBUG CARD: Removed " +
+                $"{removedCard.GetCode()} from " +
+                $"Player {currentPlayer.PlayerId}."
+            );
+        }
+
+        currentPlayer.AddCard(
+            testCard
+        );
+
+        Debug.LogWarning(
+            $"DEBUG CARD: Gave {cardCode} to " +
+            $"Player {currentPlayer.PlayerId} " +
+            $"(Team {currentPlayer.TeamId})."
+        );
+
+        // -----------------------------------------------------
+        // HOST'S OWN HAND
+        // -----------------------------------------------------
+
+        RefreshLocalHandIfOwnedBy(
+            currentPlayer.PlayerId
+        );
+
+        // -----------------------------------------------------
+        // REMOTE PLAYER'S PRIVATE HAND
+        // -----------------------------------------------------
+
+        if (networkHandState != null)
+        {
+            networkHandState.SendHandToPlayer(
+                currentPlayer.PlayerId
+            );
+        }
+    }
+
     #endif
 }

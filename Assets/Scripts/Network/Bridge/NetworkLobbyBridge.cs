@@ -224,7 +224,7 @@ public class NetworkLobbyBridge : NetworkBehaviour
         return -1;
     }
 
-    private bool TryGetPlayerIdForClient(
+    public bool TryGetPlayerIdForClient(
         ulong clientId,
         out int playerId)
     {
@@ -953,6 +953,29 @@ private void SendStartMatchResult(
         result.Message,
         target
     );
+}
+
+// =========================================================
+// PLAYER -> NETWORK CLIENT LOOKUP
+// =========================================================
+
+public bool TryGetClientIdForPlayerId(
+    int playerId,
+    out ulong clientId)
+{
+    foreach (
+        KeyValuePair<ulong, int> pair
+        in clientToPlayerId)
+    {
+        if (pair.Value == playerId)
+        {
+            clientId = pair.Key;
+            return true;
+        }
+    }
+
+    clientId = 0;
+    return false;
 }
 
 }

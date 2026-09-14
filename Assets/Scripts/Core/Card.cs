@@ -102,4 +102,133 @@ public class Card
     {
         return GetCode();
     }
+
+    // =========================================================
+    // CREATE CARD FROM NETWORK CODE
+    //
+    // Examples:
+    // "9C"  -> Nine of Clubs
+    // "10D" -> Ten of Diamonds
+    // "JH"  -> Jack of Hearts
+    // =========================================================
+
+    public static bool TryFromCode(
+        string code,
+        out Card card)
+    {
+        card = null;
+
+        if (string.IsNullOrWhiteSpace(code))
+            return false;
+
+        code =
+            code.Trim()
+                .ToUpperInvariant();
+
+        if (code.Length < 2)
+            return false;
+
+        // Last character is always the suit.
+        char suitCharacter =
+            code[code.Length - 1];
+
+        // Everything before the suit is the rank.
+        string rankCode =
+            code.Substring(
+                0,
+                code.Length - 1
+            );
+
+        Suit suit;
+
+        switch (suitCharacter)
+        {
+            case 'C':
+                suit = Suit.Clubs;
+                break;
+
+            case 'D':
+                suit = Suit.Diamonds;
+                break;
+
+            case 'H':
+                suit = Suit.Hearts;
+                break;
+
+            case 'S':
+                suit = Suit.Spades;
+                break;
+
+            default:
+                return false;
+        }
+
+        Rank rank;
+
+        switch (rankCode)
+        {
+            case "2":
+                rank = Rank.Two;
+                break;
+
+            case "3":
+                rank = Rank.Three;
+                break;
+
+            case "4":
+                rank = Rank.Four;
+                break;
+
+            case "5":
+                rank = Rank.Five;
+                break;
+
+            case "6":
+                rank = Rank.Six;
+                break;
+
+            case "7":
+                rank = Rank.Seven;
+                break;
+
+            case "8":
+                rank = Rank.Eight;
+                break;
+
+            case "9":
+                rank = Rank.Nine;
+                break;
+
+            case "10":
+                rank = Rank.Ten;
+                break;
+
+            case "J":
+                rank = Rank.Jack;
+                break;
+
+            case "Q":
+                rank = Rank.Queen;
+                break;
+
+            case "K":
+                rank = Rank.King;
+                break;
+
+            case "A":
+                rank = Rank.Ace;
+                break;
+
+            default:
+                return false;
+        }
+
+        card =
+            new Card(
+                suit,
+                rank
+            );
+
+        return true;
+    }
 }

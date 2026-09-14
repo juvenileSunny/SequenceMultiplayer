@@ -288,9 +288,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1342819699}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -1586, y: 20}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: -910, y: -15}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &48039764
@@ -1319,8 +1319,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 28.15
-  m_fontSizeBase: 28.15
+  m_fontSize: 28
+  m_fontSizeBase: 28
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -2392,6 +2392,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   boardContainer: {fileID: 3907548174479444166}
   boardCellPrefab: {fileID: 3122419166459050309, guid: 469c1c57878ced14db332639326ca01b, type: 3}
+  networkGameState: {fileID: 641753827}
+  networkGameplayBridge: {fileID: 641753829}
   showLegalMoveHighlights: 1
 --- !u!4 &510396345
 Transform:
@@ -3028,6 +3030,8 @@ GameObject:
   - component: {fileID: 641753825}
   - component: {fileID: 641753826}
   - component: {fileID: 641753827}
+  - component: {fileID: 641753828}
+  - component: {fileID: 641753829}
   m_Layer: 0
   m_Name: NetworkLobbyBridge
   m_TagString: Untagged
@@ -3110,6 +3114,35 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 99e1cf6e61dafe74fb47d28ce9ddcf03, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &641753828
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0d53ff35da78c5f449a5820d8b2cf589, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 1320369256}
+  networkLobbyBridge: {fileID: 641753825}
+--- !u!114 &641753829
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 641753822}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3f107dd0faa5ce045b1dbf0e164cbb37, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 1320369256}
+  boardManager: {fileID: 510396344}
+  networkLobbyBridge: {fileID: 641753825}
 --- !u!1 &670749231
 GameObject:
   m_ObjectHideFlags: 0
@@ -3312,7 +3345,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &703513658
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5824,6 +5857,9 @@ MonoBehaviour:
   handManager: {fileID: 356276432}
   boardManager: {fileID: 510396344}
   networkGameState: {fileID: 641753827}
+  networkHandState: {fileID: 641753828}
+  roomSessionContext: {fileID: 1552829690}
+  networkGameplayBridge: {fileID: 641753829}
   gameStatusUI: {fileID: 1342819702}
 --- !u!4 &1320369257
 Transform:
@@ -5878,9 +5914,9 @@ RectTransform:
   - {fileID: 48039763}
   m_Father: {fileID: 4169316546522246002}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 1}
-  m_AnchorMax: {x: 0.5, y: 1}
-  m_AnchoredPosition: {x: 575, y: -25}
+  m_AnchorMin: {x: 1, y: 1}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: -572, y: -25}
   m_SizeDelta: {x: 650, y: 90}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &1342819700
@@ -5933,6 +5969,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 34fb7fda406af2241be6dce128338978, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  networkGameState: {fileID: 641753827}
   currentTurnText: {fileID: 1013200196}
   team1SequenceText: {fileID: 596058002}
   team2SequenceText: {fileID: 1211762437}
@@ -5971,9 +6008,9 @@ RectTransform:
   - {fileID: 1708233209}
   m_Father: {fileID: 4169316546522246002}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: -298.57}
+  m_AnchorMin: {x: 0.5, y: 0}
+  m_AnchorMax: {x: 0.5, y: 0}
+  m_AnchoredPosition: {x: 0, y: 153.43}
   m_SizeDelta: {x: 800, y: 140}
   m_Pivot: {x: 0.5, y: 0.49999988}
 --- !u!114 &1374438957
@@ -6794,8 +6831,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: "\u200B"
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: dc36b3fdc14f47ebb36fd484a67e268a, type: 2}
+  m_sharedMaterial: {fileID: 2140032, guid: dc36b3fdc14f47ebb36fd484a67e268a, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -6819,15 +6856,15 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 14
-  m_fontSizeBase: 14
+  m_fontSize: 28
+  m_fontSizeBase: 28
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 1
-  m_VerticalAlignment: 256
+  m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
   m_wordSpacing: 0
@@ -6955,6 +6992,7 @@ GameObject:
   - component: {fileID: 1552829691}
   - component: {fileID: 1552829690}
   - component: {fileID: 1552829692}
+  - component: {fileID: 1552829693}
   m_Layer: 0
   m_Name: NetworkSession
   m_TagString: Untagged
@@ -7005,6 +7043,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   networkLobbyBridge: {fileID: 641753825}
+--- !u!114 &1552829693
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1552829689}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a91878efa7d269468c36daf29abca42, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  networkHandState: {fileID: 641753828}
+  roomSessionContext: {fileID: 1552829690}
+  handManager: {fileID: 356276432}
 --- !u!1 &1608696628
 GameObject:
   m_ObjectHideFlags: 0
