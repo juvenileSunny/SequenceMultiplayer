@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class BoardManager : MonoBehaviour
 {
@@ -135,6 +136,17 @@ public class BoardManager : MonoBehaviour
                     cellView;
             }
         }
+        // Canvas.ForceUpdateCanvases();
+
+        // RectTransform boardRect =
+        //     boardContainer as RectTransform;
+
+        // if (boardRect != null)
+        // {
+        //     LayoutRebuilder.ForceRebuildLayoutImmediate(
+        //         boardRect
+        //     );
+        // }
     }
 
     // =========================================================

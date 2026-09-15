@@ -12,7 +12,7 @@ public class LobbyPlayerData
     public string DisplayName { get; private set; }
 
     // =========================================================
-    // LOBBY STATE
+    // LOBBY / PRESENCE STATE
     // =========================================================
 
     public int SeatIndex { get; private set; } = -1;
@@ -20,6 +20,8 @@ public class LobbyPlayerData
     public int TeamId { get; private set; } = -1;
 
     public bool IsReady { get; private set; } = false;
+
+    public bool IsConnected { get; private set; } = false;
 
     // =========================================================
     // HELPERS
@@ -45,7 +47,7 @@ public class LobbyPlayerData
         DisplayName =
             string.IsNullOrWhiteSpace(displayName)
                 ? $"Player {playerId}"
-                : displayName;
+                : displayName.Trim();
     }
 
     // =========================================================
@@ -65,7 +67,6 @@ public class LobbyPlayerData
         SeatIndex =
             seatIndex;
 
-        // Team is determined by seat position.
         TeamId =
             ((seatIndex - 1) %
                 teamCount) + 1;
@@ -93,6 +94,17 @@ public class LobbyPlayerData
 
         IsReady =
             ready;
+    }
+
+    // =========================================================
+    // CONNECTION / PRESENCE
+    // =========================================================
+
+    public void SetConnected(
+        bool connected)
+    {
+        IsConnected =
+            connected;
     }
 
     // =========================================================
@@ -125,6 +137,6 @@ public class LobbyPlayerData
         }
 
         DisplayName =
-            displayName;
+            displayName.Trim();
     }
 }

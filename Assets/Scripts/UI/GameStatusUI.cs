@@ -7,6 +7,12 @@ public class GameStatusUI : MonoBehaviour
     [SerializeField]
     private NetworkGameState networkGameState;
 
+    [SerializeField]
+    private NetworkLobbyBridge networkLobbyBridge;
+
+    [SerializeField]
+    private RoomSessionContext roomSessionContext;
+
     [Header("Turn")]
     [SerializeField]
     private TMP_Text currentTurnText;
@@ -33,6 +39,18 @@ public class GameStatusUI : MonoBehaviour
                 RefreshFromNetworkState;
         }
 
+        if (networkLobbyBridge != null)
+        {
+            networkLobbyBridge.OnPublicPlayerStateChanged +=
+                RefreshFromNetworkState;
+        }
+
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged +=
+                RefreshFromNetworkState;
+        }
+
         RefreshFromNetworkState();
     }
 
@@ -41,6 +59,18 @@ public class GameStatusUI : MonoBehaviour
         if (networkGameState != null)
         {
             networkGameState.OnPublicGameStateChanged -=
+                RefreshFromNetworkState;
+        }
+
+        if (networkLobbyBridge != null)
+        {
+            networkLobbyBridge.OnPublicPlayerStateChanged -=
+                RefreshFromNetworkState;
+        }
+
+        if (roomSessionContext != null)
+        {
+            roomSessionContext.OnSessionChanged -=
                 RefreshFromNetworkState;
         }
     }
@@ -82,8 +112,6 @@ public class GameStatusUI : MonoBehaviour
 
     // =========================================================
     // LOCAL / LEGACY UPDATE
-    //
-    // Keep this because GameManager currently uses it too.
     // =========================================================
 
     public void UpdateStatus(
@@ -127,9 +155,29 @@ public class GameStatusUI : MonoBehaviour
                 teamId
             );
 
+        bool isLocalPlayer =
+            roomSessionContext != null &&
+            roomSessionContext.HasLocalPlayer &&
+            roomSessionContext.LocalPlayerId ==
+                playerId;
+
+        if (isLocalPlayer)
+        {
+            currentTurnText.text =
+                $"YOUR TURN • {teamName}";
+
+            return;
+        }
+
+        string playerName =
+            networkLobbyBridge != null
+                ? networkLobbyBridge.GetPlayerDisplayName(
+                    playerId
+                )
+                : $"Player {playerId}";
+
         currentTurnText.text =
-            $"Player {playerId} • " +
-            $"{teamName} • Turn";
+            $"{playerName}'s Turn • {teamName}";
     }
 
     // =========================================================

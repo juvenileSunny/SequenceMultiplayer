@@ -29,6 +29,20 @@ public class NetworkLobbyBridge : NetworkBehaviour
 
     private bool matchStarted = false;
 
+    // Public player profile/presence changed.
+    // Game HUD and other public UI can refresh from this.
+    public event Action OnPublicPlayerStateChanged;
+
+    // PlayerId -> public display name.
+    private readonly Dictionary<int, string>
+        playerDisplayNames =
+            new Dictionary<int, string>();
+
+    // PlayerId -> connection presence.
+    private readonly Dictionary<int, bool>
+        playerConnectedStates =
+            new Dictionary<int, bool>();
+
     // =========================================================
     // TEMPORARY CONNECTION -> PLAYER MAPPING
     //
@@ -149,6 +163,15 @@ public class NetworkLobbyBridge : NetworkBehaviour
                 NetworkManager.ServerClientId
             ] = 1;
 
+            playerConnectedStates[1] =
+                true;
+
+            if (!playerDisplayNames.ContainsKey(1))
+            {
+                playerDisplayNames[1] =
+                    "Player 1";
+            }
+
             NetworkManager.OnClientConnectedCallback +=
                 HandleServerClientConnected;
 
@@ -229,6 +252,9 @@ public class NetworkLobbyBridge : NetworkBehaviour
                     playerId
                 );
 
+            playerConnectedStates[playerId] =
+                false;
+
             Debug.LogWarning(
                 $"NGO ClientId {clientId} disconnected " +
                 $"from Player {playerId}. " +
@@ -243,6 +269,10 @@ public class NetworkLobbyBridge : NetworkBehaviour
             //
             // and GameManager keeps the authoritative
             // Player object / hand / board / turn state.
+
+            BroadcastLobbyState();
+
+            OnPublicPlayerStateChanged?.Invoke();
         }
     }
 
@@ -731,73 +761,109 @@ public class NetworkLobbyBridge : NetworkBehaviour
             if (player == null)
                 continue;
 
+            string displayName =
+                GetPlayerDisplayName(
+                    player.PlayerId
+                );
+
+            bool isConnected =
+                IsPlayerConnected(
+                    player.PlayerId
+                );
+
+            // Keep the server-side lobby model aligned too.
+            player.SetDisplayName(
+                displayName
+            );
+
+            player.SetConnected(
+                isConnected
+            );
+
             SyncPlayerStateClientRpc(
                 player.PlayerId,
+                displayName,
                 player.SeatIndex,
                 player.TeamId,
-                player.IsReady
+                player.IsReady,
+                isConnected
             );
         }
+
+        OnPublicPlayerStateChanged?.Invoke();
     }
 
     [ClientRpc]
     private void SyncPlayerStateClientRpc(
         int playerId,
+        string displayName,
         int seatIndex,
         int teamId,
-        bool isReady)
+        bool isReady,
+        bool isConnected)
     {
-        // Host already owns the authoritative state.
-        // Do not write it back into itself.
-        if (IsServer)
-            return;
+        // Store public profile data even if the local
+        // LobbyManager has not created its player objects yet.
+        playerDisplayNames[playerId] =
+            string.IsNullOrWhiteSpace(
+                displayName)
+                ? $"Player {playerId}"
+                : displayName.Trim();
 
-        if (lobbyManager == null)
-            return;
+        playerConnectedStates[playerId] =
+            isConnected;
 
-        LobbyPlayerData player =
-            lobbyManager.GetPlayer(
-                playerId
-            );
-
-        if (player == null)
-            return;
-
-        // -----------------------------------------------------
-        // Synchronize seat.
-        // Team is derived from the seat by LobbyManager.
-        // -----------------------------------------------------
-
-        if (seatIndex > 0)
+        // Host already owns the authoritative lobby state.
+        if (!IsServer &&
+            lobbyManager != null)
         {
-            lobbyManager.TryAssignSeat(
-                playerId,
-                seatIndex
-            );
-        }
-        else
-        {
-            lobbyManager.ClearPlayerSeat(
-                playerId
-            );
-        }
+            LobbyPlayerData player =
+                lobbyManager.GetPlayer(
+                    playerId
+                );
 
-        // -----------------------------------------------------
-        // Synchronize ready state.
-        // -----------------------------------------------------
+            if (player != null)
+            {
+                player.SetDisplayName(
+                    playerDisplayNames[playerId]
+                );
 
-        lobbyManager.SetPlayerReady(
-            playerId,
-            isReady
-        );
+                player.SetConnected(
+                    isConnected
+                );
+
+                if (seatIndex > 0)
+                {
+                    lobbyManager.TryAssignSeat(
+                        playerId,
+                        seatIndex
+                    );
+                }
+                else
+                {
+                    lobbyManager.ClearPlayerSeat(
+                        playerId
+                    );
+                }
+
+                lobbyManager.SetPlayerReady(
+                    playerId,
+                    isReady
+                );
+            }
+        }
 
         Debug.Log(
-            $"SYNC lobby state: " +
+            $"SYNC public player state: " +
             $"Player={playerId}, " +
+            $"Name={playerDisplayNames[playerId]}, " +
             $"Seat={seatIndex}, " +
             $"Team={teamId}, " +
-            $"Ready={isReady}"
+            $"Ready={isReady}, " +
+            $"Connected={isConnected}"
         );
+
+        OnPublicPlayerStateChanged?.Invoke();
     }
 
     // =========================================================
@@ -1041,6 +1107,7 @@ private void SendStartMatchResult(
 public void RequestSessionRegistration(
     string roomCode,
     string rejoinToken,
+    string displayName,
     Action<bool, int, bool, bool, string> onCompleted)
 {
     if (!IsSpawned)
@@ -1093,7 +1160,8 @@ public void RequestSessionRegistration(
     RequestSessionRegistrationServerRpc(
         requestId,
         roomCode,
-        rejoinToken
+        rejoinToken,
+        displayName
     );
 }
 
@@ -1102,6 +1170,7 @@ private void RequestSessionRegistrationServerRpc(
     int requestId,
     string roomCode,
     string rejoinToken,
+    string displayName,
     ServerRpcParams rpcParams = default)
 {
     ulong senderClientId =
@@ -1120,6 +1189,11 @@ private void RequestSessionRegistrationServerRpc(
             rejoinToken)
             ? ""
             : rejoinToken.Trim();
+
+    string normalizedDisplayName =
+        NormalizeDisplayName(
+            displayName
+        );
 
     if (string.IsNullOrWhiteSpace(
             normalizedToken))
@@ -1176,6 +1250,17 @@ private void RequestSessionRegistrationServerRpc(
             playerIdToRejoinToken.ContainsKey(
                 existingClientPlayerId
             );
+
+        ApplyDisplayName(
+            existingClientPlayerId,
+            normalizedDisplayName
+        );
+
+        playerConnectedStates[
+            existingClientPlayerId
+        ] = true;
+
+        BroadcastLobbyState();
 
         SendSessionRegistrationResult(
             senderClientId,
@@ -1285,6 +1370,16 @@ private void RequestSessionRegistrationServerRpc(
     clientToPlayerId[
         senderClientId
     ] = playerId;
+
+    playerConnectedStates[playerId] =
+        true;
+
+    ApplyDisplayName(
+        playerId,
+        normalizedDisplayName
+    );
+
+    BroadcastLobbyState();
 
     Debug.LogWarning(
         isRejoin
@@ -1535,6 +1630,143 @@ private void StateSyncResultClientRpc(
         success,
         message
     );
+}
+
+
+// =========================================================
+// PUBLIC PLAYER PROFILE / PRESENCE
+// =========================================================
+
+public void SetHostDisplayName(
+    string displayName)
+{
+    if (!IsServer)
+        return;
+
+    string normalized =
+        NormalizeDisplayName(
+            displayName
+        );
+
+    ApplyDisplayName(
+        1,
+        normalized
+    );
+
+    playerConnectedStates[1] =
+        true;
+
+    BroadcastLobbyState();
+
+    OnPublicPlayerStateChanged?.Invoke();
+}
+
+public string GetPlayerDisplayName(
+    int playerId)
+{
+    if (playerDisplayNames.TryGetValue(
+            playerId,
+            out string displayName) &&
+        !string.IsNullOrWhiteSpace(
+            displayName))
+    {
+        return displayName;
+    }
+
+    if (lobbyManager != null)
+    {
+        LobbyPlayerData player =
+            lobbyManager.GetPlayer(
+                playerId
+            );
+
+        if (player != null &&
+            !string.IsNullOrWhiteSpace(
+                player.DisplayName))
+        {
+            return player.DisplayName;
+        }
+    }
+
+    return $"Player {playerId}";
+}
+
+public bool IsPlayerConnected(
+    int playerId)
+{
+    if (playerConnectedStates.TryGetValue(
+            playerId,
+            out bool connected))
+    {
+        return connected;
+    }
+
+    // The host exists as long as this listen server exists.
+    if (IsServer &&
+        playerId == 1)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+private void ApplyDisplayName(
+    int playerId,
+    string displayName)
+{
+    if (playerId <= 0)
+        return;
+
+    string finalName =
+        string.IsNullOrWhiteSpace(
+            displayName)
+            ? GetPlayerDisplayName(
+                playerId
+            )
+            : displayName;
+
+    playerDisplayNames[playerId] =
+        finalName;
+
+    if (lobbyManager == null)
+        return;
+
+    LobbyPlayerData player =
+        lobbyManager.GetPlayer(
+            playerId
+        );
+
+    if (player != null)
+    {
+        player.SetDisplayName(
+            finalName
+        );
+    }
+}
+
+private string NormalizeDisplayName(
+    string displayName)
+{
+    if (string.IsNullOrWhiteSpace(
+            displayName))
+    {
+        return "";
+    }
+
+    string value =
+        displayName.Trim();
+
+    if (value.Length > 16)
+    {
+        value =
+            value.Substring(
+                0,
+                16
+            );
+    }
+
+    return value;
 }
 
 // =========================================================

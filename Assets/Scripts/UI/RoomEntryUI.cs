@@ -40,9 +40,13 @@ public class RoomEntryUI : MonoBehaviour
     // =========================================================
 
     [Header("Room Controls")]
+    [SerializeField] private TMP_InputField playerNameInput;
     [SerializeField] private Button createRoomButton;
     [SerializeField] private TMP_InputField roomCodeInput;
     [SerializeField] private Button joinRoomButton;
+
+    private const string PlayerNamePrefsKey =
+        "SequenceGame.PlayerDisplayName";
 
     // =========================================================
     // STATUS
@@ -63,8 +67,6 @@ public class RoomEntryUI : MonoBehaviour
     [SerializeField]
     private int temporaryHostPlayerId = 1;
 
-    [SerializeField]
-    // private int temporaryJoiningPlayerId = 2;
 
     // =========================================================
     // PUBLIC DATA
@@ -97,6 +99,8 @@ public class RoomEntryUI : MonoBehaviour
 
     private void Awake()
     {
+        LoadSavedPlayerName();
+
         ShowRoomEntry();
     }
 
@@ -152,6 +156,16 @@ public class RoomEntryUI : MonoBehaviour
 
     private void HandleCreateRoomClicked()
     {
+        if (!TryGetPlayerName(
+                out string displayName))
+        {
+            return;
+        }
+
+        SavePlayerName(
+            displayName
+        );
+
         if (networkBootstrap == null)
         {
             Debug.LogError(
@@ -202,6 +216,13 @@ public class RoomEntryUI : MonoBehaviour
             temporaryHostPlayerId
         );
 
+        if (networkLobbyBridge != null)
+        {
+            networkLobbyBridge.SetHostDisplayName(
+                displayName
+            );
+        }
+
         Debug.Log(
             $"ROOM CREATED: " +
             $"{roomSessionContext.RoomCode}"
@@ -226,6 +247,16 @@ public class RoomEntryUI : MonoBehaviour
 
     private void HandleJoinRoomClicked()
     {
+        if (!TryGetPlayerName(
+                out string displayName))
+        {
+            return;
+        }
+
+        SavePlayerName(
+            displayName
+        );
+
         if (networkBootstrap == null)
         {
             Debug.LogError(
@@ -315,7 +346,8 @@ public class RoomEntryUI : MonoBehaviour
                     StartCoroutine(
                         RegisterConnectedClient(
                             enteredCode,
-                            rejoinToken
+                            rejoinToken,
+                            displayName
                         )
                     );
                 },
@@ -355,7 +387,8 @@ public class RoomEntryUI : MonoBehaviour
 
     private IEnumerator RegisterConnectedClient(
         string enteredCode,
-        string rejoinToken)
+        string rejoinToken,
+        string displayName)
     {
         float timeoutAt =
             Time.realtimeSinceStartup +
@@ -394,6 +427,7 @@ public class RoomEntryUI : MonoBehaviour
         networkLobbyBridge.RequestSessionRegistration(
             enteredCode,
             rejoinToken,
+            displayName,
 
             (
                 success,
@@ -668,6 +702,88 @@ public class RoomEntryUI : MonoBehaviour
         }
 
         return code;
+    }
+
+    // =========================================================
+    // PLAYER DISPLAY NAME
+    // =========================================================
+
+    private bool TryGetPlayerName(
+        out string displayName)
+    {
+        displayName = "";
+
+        if (playerNameInput == null)
+        {
+            SetMessage(
+                "Player name input is missing."
+            );
+
+            return false;
+        }
+
+        displayName =
+            playerNameInput.text
+                .Trim();
+
+        if (displayName.Length < 2)
+        {
+            SetMessage(
+                "Enter a player name with at least 2 characters."
+            );
+
+            return false;
+        }
+
+        if (displayName.Length > 16)
+        {
+            displayName =
+                displayName.Substring(
+                    0,
+                    16
+                );
+
+            playerNameInput.text =
+                displayName;
+        }
+
+        return true;
+    }
+
+    private void LoadSavedPlayerName()
+    {
+        if (playerNameInput == null)
+            return;
+
+        string savedName =
+            PlayerPrefs.GetString(
+                PlayerNamePrefsKey,
+                ""
+            );
+
+        if (!string.IsNullOrWhiteSpace(
+                savedName))
+        {
+            playerNameInput.text =
+                savedName;
+        }
+    }
+
+    private void SavePlayerName(
+        string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(
+                displayName))
+        {
+            return;
+        }
+
+        PlayerPrefs.SetString(
+            PlayerNamePrefsKey,
+            displayName
+        );
+
+        PlayerPrefs.Save();
     }
 
     // =========================================================
