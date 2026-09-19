@@ -21,6 +21,15 @@ public class GamePlayerStatusUI : MonoBehaviour
     private readonly List<GamePlayerStatusSlotUI> spawnedSlots =
         new List<GamePlayerStatusSlotUI>();
 
+    private class PlayerHudData
+    {
+        public int PlayerId;
+        public string DisplayName;
+        public int SeatIndex;
+        public int TeamId;
+        public bool IsConnected;
+    }
+
     private void OnEnable()
     {
         if (networkLobbyBridge != null)
@@ -49,15 +58,17 @@ public class GamePlayerStatusUI : MonoBehaviour
 
     public void Refresh()
     {
-        if (lobbyManager == null ||
-            playerSlotPrefab == null ||
+        if (playerSlotPrefab == null ||
             topPlayers == null ||
             rightPlayers == null ||
             bottomPlayers == null ||
             leftPlayers == null)
+        {
             return;
+        }
 
-        List<LobbyPlayerData> players = GetPlayersSortedBySeat();
+        List<PlayerHudData> players =
+            GetPlayersSortedBySeat();
 
         EnsureSlotCount(players.Count);
 
@@ -69,10 +80,10 @@ public class GamePlayerStatusUI : MonoBehaviour
             out List<int> leftSeats
         );
 
-        Dictionary<int, LobbyPlayerData> playerBySeat =
-            new Dictionary<int, LobbyPlayerData>();
+        Dictionary<int, PlayerHudData> playerBySeat =
+            new Dictionary<int, PlayerHudData>();
 
-        foreach (LobbyPlayerData player in players)
+        foreach (PlayerHudData player in players)
         {
             if (player != null && player.SeatIndex > 0)
                 playerBySeat[player.SeatIndex] = player;
@@ -89,23 +100,62 @@ public class GamePlayerStatusUI : MonoBehaviour
             spawnedSlots[i].gameObject.SetActive(false);
     }
 
-    private List<LobbyPlayerData> GetPlayersSortedBySeat()
+    private List<PlayerHudData> GetPlayersSortedBySeat()
     {
-        List<LobbyPlayerData> players =
-            new List<LobbyPlayerData>();
+        List<PlayerHudData> players =
+            new List<PlayerHudData>();
 
-        if (lobbyManager == null)
-            return players;
-
-        for (int playerId = 1;
-             playerId <= lobbyManager.PlayerCount;
-             playerId++)
+        // PRIMARY SOURCE: restored public network snapshot.
+        if (networkLobbyBridge != null)
         {
-            LobbyPlayerData player =
-                lobbyManager.GetPlayer(playerId);
+            List<int> knownPlayerIds =
+                networkLobbyBridge.GetKnownPlayerIds();
 
-            if (player != null && player.HasSeat)
-                players.Add(player);
+            foreach (int playerId in knownPlayerIds)
+            {
+                int seatIndex =
+                    networkLobbyBridge.GetPlayerSeatIndex(playerId);
+
+                if (seatIndex <= 0)
+                    continue;
+
+                players.Add(
+                    new PlayerHudData
+                    {
+                        PlayerId = playerId,
+                        DisplayName = networkLobbyBridge.GetPlayerDisplayName(playerId),
+                        SeatIndex = seatIndex,
+                        TeamId = networkLobbyBridge.GetPlayerTeamId(playerId),
+                        IsConnected = networkLobbyBridge.IsPlayerConnected(playerId)
+                    }
+                );
+            }
+        }
+
+        // FALLBACK: normal local lobby state before snapshot arrives.
+        if (players.Count == 0 && lobbyManager != null)
+        {
+            for (int playerId = 1;
+                 playerId <= lobbyManager.PlayerCount;
+                 playerId++)
+            {
+                LobbyPlayerData player =
+                    lobbyManager.GetPlayer(playerId);
+
+                if (player == null || !player.HasSeat)
+                    continue;
+
+                players.Add(
+                    new PlayerHudData
+                    {
+                        PlayerId = player.PlayerId,
+                        DisplayName = player.DisplayName,
+                        SeatIndex = player.SeatIndex,
+                        TeamId = player.TeamId,
+                        IsConnected = player.IsConnected
+                    }
+                );
+            }
         }
 
         players.Sort(
@@ -118,15 +168,17 @@ public class GamePlayerStatusUI : MonoBehaviour
     private int PlaceSide(
         List<int> seatNumbers,
         Transform parent,
-        Dictionary<int, LobbyPlayerData> playerBySeat,
+        Dictionary<int, PlayerHudData> playerBySeat,
         int slotIndex)
     {
         foreach (int seatNumber in seatNumbers)
         {
             if (!playerBySeat.TryGetValue(
                     seatNumber,
-                    out LobbyPlayerData player))
+                    out PlayerHudData player))
+            {
                 continue;
+            }
 
             GamePlayerStatusSlotUI slot =
                 spawnedSlots[slotIndex];
@@ -136,18 +188,6 @@ public class GamePlayerStatusUI : MonoBehaviour
             slot.transform.SetParent(parent, false);
             slot.transform.SetAsLastSibling();
             slot.gameObject.SetActive(true);
-
-            string displayName =
-                networkLobbyBridge != null
-                    ? networkLobbyBridge.GetPlayerDisplayName(
-                        player.PlayerId)
-                    : player.DisplayName;
-
-            bool isConnected =
-                networkLobbyBridge != null
-                    ? networkLobbyBridge.IsPlayerConnected(
-                        player.PlayerId)
-                    : player.IsConnected;
 
             int currentPlayerId =
                 networkGameState != null
@@ -162,10 +202,10 @@ public class GamePlayerStatusUI : MonoBehaviour
 
             slot.Configure(
                 player.PlayerId,
-                displayName,
+                player.DisplayName,
                 player.SeatIndex,
                 player.TeamId,
-                isConnected,
+                player.IsConnected,
                 player.PlayerId == currentPlayerId,
                 player.PlayerId == localPlayerId
             );
@@ -262,28 +302,25 @@ public class GamePlayerStatusUI : MonoBehaviour
         if (playerCount <= 0)
             return;
 
-        int topCount =
-            Mathf.CeilToInt(playerCount / 4f);
-
-        int rightCount =
-            Mathf.CeilToInt(
-                (playerCount - topCount) / 3f);
-
-        int bottomCount =
-            Mathf.CeilToInt(
-                (playerCount - topCount - rightCount) / 2f);
+        int topCount = Mathf.CeilToInt(playerCount / 4f);
+        int rightCount = Mathf.CeilToInt((playerCount - topCount) / 3f);
+        int bottomCount = Mathf.CeilToInt((playerCount - topCount - rightCount) / 2f);
 
         int seat = 1;
 
         for (int i = 0;
              i < topCount && seat <= playerCount;
              i++)
+        {
             top.Add(seat++);
+        }
 
         for (int i = 0;
              i < rightCount && seat <= playerCount;
              i++)
+        {
             right.Add(seat++);
+        }
 
         List<int> clockwiseBottom =
             new List<int>();
@@ -291,7 +328,9 @@ public class GamePlayerStatusUI : MonoBehaviour
         for (int i = 0;
              i < bottomCount && seat <= playerCount;
              i++)
+        {
             clockwiseBottom.Add(seat++);
+        }
 
         clockwiseBottom.Reverse();
         bottom.AddRange(clockwiseBottom);

@@ -542,7 +542,7 @@ MonoBehaviour:
   teamText: {fileID: 3934531786428538978}
   presenceDot: {fileID: 5553097403392869441}
   presenceText: {fileID: 7222987120066428994}
-  turnHighlight: {fileID: 0}
+  turnHighlight: {fileID: 6757196121581032090}
   turnLabel: {fileID: 434370613221893243}
   youLabel: {fileID: 3023865831464498599}
   team1Color: {r: 0.85, g: 0.2, b: 0.2, a: 1}

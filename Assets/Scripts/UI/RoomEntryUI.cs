@@ -45,9 +45,6 @@ public class RoomEntryUI : MonoBehaviour
     [SerializeField] private TMP_InputField roomCodeInput;
     [SerializeField] private Button joinRoomButton;
 
-    private const string PlayerNamePrefsKey =
-        "SequenceGame.PlayerDisplayName";
-
     // =========================================================
     // STATUS
     // =========================================================
@@ -99,8 +96,6 @@ public class RoomEntryUI : MonoBehaviour
 
     private void Awake()
     {
-        LoadSavedPlayerName();
-
         ShowRoomEntry();
     }
 
@@ -161,10 +156,6 @@ public class RoomEntryUI : MonoBehaviour
         {
             return;
         }
-
-        SavePlayerName(
-            displayName
-        );
 
         if (networkBootstrap == null)
         {
@@ -253,10 +244,6 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        SavePlayerName(
-            displayName
-        );
-
         if (networkBootstrap == null)
         {
             Debug.LogError(
@@ -314,25 +301,51 @@ public class RoomEntryUI : MonoBehaviour
             return;
         }
 
-        string rejoinToken =
-            roomSessionContext.GetOrCreateRejoinToken(
-                enteredCode
+        // -----------------------------------------------------
+        // REJOIN IDENTITY
+        //
+        // RejoinToken identifies the PLAYER.
+        // DisplayName is allowed to change on rejoin.
+        //
+        // Same token + different name:
+        // PlayerId / seat / team / hand stay the same,
+        // while the public display name can use the new name.
+        // -----------------------------------------------------
+
+        bool hasExistingRejoinToken =
+            roomSessionContext.TryLoadRejoinToken(
+                enteredCode,
+                out string rejoinToken
             );
+
+        // No saved identity for this room yet:
+        // create a brand-new token.
+        if (!hasExistingRejoinToken)
+        {
+            rejoinToken =
+                roomSessionContext.GetOrCreateRejoinToken(
+                    enteredCode
+                );
+        }
 
         if (string.IsNullOrWhiteSpace(
                 rejoinToken))
         {
             SetMessage(
-                "Could not create a rejoin identity."
+                "Could not create a player identity."
             );
 
             return;
         }
 
+        // Local hint only. The server decides whether this
+        // token is actually a known rejoin identity.
         SetMessage(
-            "Connecting to host..."
+            hasExistingRejoinToken
+                ? $"Rejoining as {displayName}..."
+                : $"Joining as {displayName}..."
         );
-
+        
         bool connectionStarted =
             networkBootstrap.StartClient(
 
@@ -472,12 +485,16 @@ public class RoomEntryUI : MonoBehaviour
                           $"Player {assignedPlayerId}."
                 );
 
+                // The server has now confirmed whether this
+                // connection is a new join or a real rejoin.
+                SetMessage(
+                    isRejoin
+                        ? $"Rejoining as {displayName}..."
+                        : $"Joined as {displayName}."
+                );
+
                 if (!isMatchInProgress)
                 {
-                    SetMessage(
-                        message
-                    );
-
                     OpenLobby();
 
                     return;
@@ -487,7 +504,7 @@ public class RoomEntryUI : MonoBehaviour
                 // now that LocalPlayerId is configured,
                 // request the private hand and full board.
                 SetMessage(
-                    "Rejoining existing match..."
+                    $"Rejoining as {displayName}..."
                 );
 
                 networkLobbyBridge.RequestCurrentMatchStateSync(
@@ -513,7 +530,7 @@ public class RoomEntryUI : MonoBehaviour
                         );
 
                         SetMessage(
-                            "Rejoined match."
+                            $"{displayName} rejoined the game."
                         );
 
                         OpenGame();
@@ -748,42 +765,6 @@ public class RoomEntryUI : MonoBehaviour
         }
 
         return true;
-    }
-
-    private void LoadSavedPlayerName()
-    {
-        if (playerNameInput == null)
-            return;
-
-        string savedName =
-            PlayerPrefs.GetString(
-                PlayerNamePrefsKey,
-                ""
-            );
-
-        if (!string.IsNullOrWhiteSpace(
-                savedName))
-        {
-            playerNameInput.text =
-                savedName;
-        }
-    }
-
-    private void SavePlayerName(
-        string displayName)
-    {
-        if (string.IsNullOrWhiteSpace(
-                displayName))
-        {
-            return;
-        }
-
-        PlayerPrefs.SetString(
-            PlayerNamePrefsKey,
-            displayName
-        );
-
-        PlayerPrefs.Save();
     }
 
     // =========================================================

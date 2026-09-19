@@ -155,6 +155,35 @@ public class GameStatusUI : MonoBehaviour
                 teamId
             );
 
+        string playerName =
+            networkLobbyBridge != null
+                ? networkLobbyBridge.GetPlayerDisplayName(
+                    playerId
+                )
+                : $"Player {playerId}";
+
+        // =====================================================
+        // CURRENT PLAYER DISCONNECTED
+        // =====================================================
+
+        bool isConnected =
+            networkLobbyBridge == null ||
+            networkLobbyBridge.IsPlayerConnected(
+                playerId
+            );
+
+        if (!isConnected)
+        {
+            currentTurnText.text =
+                $"Waiting for {playerName} to reconnect...";
+
+            return;
+        }
+
+        // =====================================================
+        // LOCAL PLAYER'S TURN
+        // =====================================================
+
         bool isLocalPlayer =
             roomSessionContext != null &&
             roomSessionContext.HasLocalPlayer &&
@@ -169,17 +198,13 @@ public class GameStatusUI : MonoBehaviour
             return;
         }
 
-        string playerName =
-            networkLobbyBridge != null
-                ? networkLobbyBridge.GetPlayerDisplayName(
-                    playerId
-                )
-                : $"Player {playerId}";
+        // =====================================================
+        // OTHER PLAYER'S TURN
+        // =====================================================
 
         currentTurnText.text =
             $"{playerName}'s Turn • {teamName}";
     }
-
     // =========================================================
     // SEQUENCE DISPLAY
     // =========================================================

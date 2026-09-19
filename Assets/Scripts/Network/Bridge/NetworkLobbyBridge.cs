@@ -42,6 +42,13 @@ public class NetworkLobbyBridge : NetworkBehaviour
     private readonly Dictionary<int, bool>
         playerConnectedStates =
             new Dictionary<int, bool>();
+    private readonly Dictionary<int, int>
+        playerSeatIndexes =
+            new Dictionary<int, int>();
+
+    private readonly Dictionary<int, int>
+        playerTeamIds =
+            new Dictionary<int, int>();
 
     // =========================================================
     // TEMPORARY CONNECTION -> PLAYER MAPPING
@@ -788,6 +795,11 @@ public class NetworkLobbyBridge : NetworkBehaviour
                 player.IsReady,
                 isConnected
             );
+            playerSeatIndexes[player.PlayerId] =
+                player.SeatIndex;
+
+            playerTeamIds[player.PlayerId] =
+                player.TeamId;
         }
 
         OnPublicPlayerStateChanged?.Invoke();
@@ -812,6 +824,11 @@ public class NetworkLobbyBridge : NetworkBehaviour
 
         playerConnectedStates[playerId] =
             isConnected;
+        playerSeatIndexes[playerId] =
+            seatIndex;
+
+        playerTeamIds[playerId] =
+            teamId;
 
         // Host already owns the authoritative lobby state.
         if (!IsServer &&
@@ -1709,6 +1726,88 @@ public bool IsPlayerConnected(
     }
 
     return false;
+}
+
+public int GetPlayerSeatIndex(
+    int playerId)
+{
+    if (playerSeatIndexes.TryGetValue(
+            playerId,
+            out int seatIndex))
+    {
+        return seatIndex;
+    }
+
+    if (lobbyManager != null)
+    {
+        LobbyPlayerData player =
+            lobbyManager.GetPlayer(
+                playerId
+            );
+
+        if (player != null)
+            return player.SeatIndex;
+    }
+
+    return -1;
+}
+
+public int GetPlayerTeamId(
+    int playerId)
+{
+    if (playerTeamIds.TryGetValue(
+            playerId,
+            out int teamId))
+    {
+        return teamId;
+    }
+
+    if (lobbyManager != null)
+    {
+        LobbyPlayerData player =
+            lobbyManager.GetPlayer(
+                playerId
+            );
+
+        if (player != null)
+            return player.TeamId;
+    }
+
+    return -1;
+}
+
+public List<int> GetKnownPlayerIds()
+{
+    List<int> playerIds =
+        new List<int>();
+
+    foreach (int playerId
+             in playerDisplayNames.Keys)
+    {
+        if (!playerIds.Contains(
+                playerId))
+        {
+            playerIds.Add(
+                playerId
+            );
+        }
+    }
+
+    foreach (int playerId
+             in playerSeatIndexes.Keys)
+    {
+        if (!playerIds.Contains(
+                playerId))
+        {
+            playerIds.Add(
+                playerId
+            );
+        }
+    }
+
+    playerIds.Sort();
+
+    return playerIds;
 }
 
 private void ApplyDisplayName(
