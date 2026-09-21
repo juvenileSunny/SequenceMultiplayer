@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -8,11 +9,17 @@ public class SequenceNetworkBootstrap : MonoBehaviour
     [SerializeField]
     private NetworkManager networkManager;
 
+    [Header("Client Connection")]
+    [SerializeField]
+    private float clientConnectionTimeoutSeconds = 8f;
+
     private bool waitingForClientConnection = false;
     private bool intentionalShutdown = false;
 
     private Action clientConnectedCallback;
     private Action<string> clientConnectionFailedCallback;
+
+    private Coroutine clientConnectionTimeoutCoroutine;
 
     // Fired only for this local remote-client instance
     // after it had already connected successfully and
@@ -34,6 +41,8 @@ public class SequenceNetworkBootstrap : MonoBehaviour
 
     private void OnDestroy()
     {
+        CancelClientConnectionTimeout();
+
         CleanupClientCallbacks();
     }
 
@@ -148,6 +157,7 @@ public class SequenceNetworkBootstrap : MonoBehaviour
         // -----------------------------------------------------
         // Start attempting to connect.
         //
+        // IMPORTANT:
         // true here means:
         //
         // "The connection attempt started."
@@ -165,17 +175,22 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             waitingForClientConnection =
                 false;
 
+            CancelClientConnectionTimeout();
+
             CleanupClientCallbacks();
 
             Debug.LogError(
                 "Failed to begin Sequence client connection."
             );
 
-            clientConnectionFailedCallback?.Invoke(
-                "Could not begin connection."
-            );
+            Action<string> callback =
+                clientConnectionFailedCallback;
 
             ClearPendingCallbacks();
+
+            callback?.Invoke(
+                "Could not begin connection."
+            );
 
             return false;
         }
@@ -184,7 +199,96 @@ public class SequenceNetworkBootstrap : MonoBehaviour
             "Sequence network CLIENT connection attempt started."
         );
 
+        // Start our own connection timeout.
+        //
+        // This prevents the UI from staying forever on:
+        //
+        // "Joining as ..."
+        //
+        // when the host/server no longer exists.
+        StartClientConnectionTimeout();
+
         return true;
+    }
+
+    // =========================================================
+    // CLIENT CONNECTION TIMEOUT
+    // =========================================================
+
+    private void StartClientConnectionTimeout()
+    {
+        CancelClientConnectionTimeout();
+
+        clientConnectionTimeoutCoroutine =
+            StartCoroutine(
+                ClientConnectionTimeoutRoutine()
+            );
+    }
+
+    private IEnumerator ClientConnectionTimeoutRoutine()
+    {
+        float timeoutSeconds =
+            Mathf.Max(
+                1f,
+                clientConnectionTimeoutSeconds
+            );
+
+        yield return
+            new WaitForSecondsRealtime(
+                timeoutSeconds
+            );
+
+        clientConnectionTimeoutCoroutine =
+            null;
+
+        // The connection completed or already failed.
+        if (!waitingForClientConnection)
+            yield break;
+
+        Debug.LogWarning(
+            $"Sequence client connection timed out " +
+            $"after {timeoutSeconds:0.#} seconds."
+        );
+
+        waitingForClientConnection =
+            false;
+
+        Action<string> callback =
+            clientConnectionFailedCallback;
+
+        // Remove NGO callbacks before shutting down so the
+        // shutdown-triggered disconnect callback cannot report
+        // the same failure a second time.
+        CleanupClientCallbacks();
+
+        ClearPendingCallbacks();
+
+        intentionalShutdown =
+            true;
+
+        if (networkManager != null &&
+            networkManager.IsListening)
+        {
+            networkManager.Shutdown();
+        }
+
+        callback?.Invoke(
+            "Could not reach the host. " +
+            "The room may no longer exist."
+        );
+    }
+
+    private void CancelClientConnectionTimeout()
+    {
+        if (clientConnectionTimeoutCoroutine == null)
+            return;
+
+        StopCoroutine(
+            clientConnectionTimeoutCoroutine
+        );
+
+        clientConnectionTimeoutCoroutine =
+            null;
     }
 
     // =========================================================
@@ -208,6 +312,8 @@ public class SequenceNetworkBootstrap : MonoBehaviour
 
         waitingForClientConnection =
             false;
+
+        CancelClientConnectionTimeout();
 
         Debug.Log(
             $"Sequence network CLIENT connected. " +
@@ -249,6 +355,8 @@ public class SequenceNetworkBootstrap : MonoBehaviour
 
         waitingForClientConnection =
             false;
+
+        CancelClientConnectionTimeout();
 
         CleanupClientCallbacks();
 
@@ -296,6 +404,8 @@ public class SequenceNetworkBootstrap : MonoBehaviour
     {
         intentionalShutdown =
             true;
+
+        CancelClientConnectionTimeout();
 
         CleanupClientCallbacks();
 

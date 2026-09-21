@@ -331,11 +331,28 @@ public class RoomSessionContext : MonoBehaviour
     private string GetRejoinTokenKey(
         string targetRoomCode)
     {
-        return
+        string key =
             "SequenceGame.RejoinToken." +
             NormalizeRoomCode(
                 targetRoomCode
             );
+
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+
+        string developmentClientId =
+            GetDevelopmentClientId();
+
+        if (!string.IsNullOrWhiteSpace(
+                developmentClientId))
+        {
+            key +=
+                ".DevClient." +
+                developmentClientId;
+        }
+
+    #endif
+
+        return key;
     }
 
     private string NormalizeRoomCode(
@@ -389,7 +406,49 @@ public class RoomSessionContext : MonoBehaviour
     // =========================================================
     // DEVELOPMENT PLAYER SIMULATION
     // =========================================================
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 
+    private string GetDevelopmentClientId()
+    {
+        // Unity Editor gets its own identity.
+        if (Application.isEditor)
+        {
+            return "Editor";
+        }
+
+        string[] arguments =
+            Environment.GetCommandLineArgs();
+
+        const string prefix =
+            "-devClient=";
+
+        foreach (string argument
+                in arguments)
+        {
+            if (argument.StartsWith(
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string value =
+                    argument.Substring(
+                        prefix.Length
+                    ).Trim();
+
+                if (!string.IsNullOrWhiteSpace(
+                        value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        // A development build launched normally still
+        // behaves like one ordinary standalone client.
+        return "Default";
+
+    }
+
+#endif
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
 
     public void DebugSetLocalPlayerId(

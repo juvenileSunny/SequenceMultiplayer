@@ -12,6 +12,8 @@ public class LobbyUI : MonoBehaviour
     [Header("Managers")]
     [SerializeField] private LobbyManager lobbyManager;
     [SerializeField] private LobbyRequestGateway requestGateway;
+    [SerializeField] private NetworkLobbyBridge networkLobbyBridge;
+
     [Header("Session")]
     [SerializeField] private RoomSessionContext roomSessionContext;
 
@@ -43,6 +45,10 @@ public class LobbyUI : MonoBehaviour
     private readonly List<LobbyPlayerSlotUI> spawnedSlots =
         new List<LobbyPlayerSlotUI>();
 
+    // Prevent a network-driven dropdown refresh from being
+    // interpreted as a brand-new local settings request.
+    private bool applyingNetworkConfiguration = false;
+
     // =========================================================
     // UNITY
     // =========================================================
@@ -52,6 +58,12 @@ public class LobbyUI : MonoBehaviour
         if (lobbyManager != null)
         {
             lobbyManager.OnLobbyChanged += RefreshLobbyUI;
+        }
+
+        if (networkLobbyBridge != null)
+        {
+            networkLobbyBridge.OnLobbyConfigurationChanged +=
+                HandleLobbyConfigurationChanged;
         }
 
         if (playerCountDropdown != null)
@@ -90,11 +102,10 @@ public class LobbyUI : MonoBehaviour
     {
         ShowLobby();
 
-        // Make sure the team dropdown is valid
-        // before creating the first lobby.
-        UpdateValidTeamOptions();
-
-        ConfigureLobbyFromDropdowns();
+        // The lobby/server state is authoritative.
+        // Do not create an independent local configuration
+        // from this client's dropdown values.
+        ApplyAuthoritativeConfigurationToUI();
     }
 
     private void OnDisable()
@@ -102,6 +113,12 @@ public class LobbyUI : MonoBehaviour
         if (lobbyManager != null)
         {
             lobbyManager.OnLobbyChanged -= RefreshLobbyUI;
+        }
+
+        if (networkLobbyBridge != null)
+        {
+            networkLobbyBridge.OnLobbyConfigurationChanged -=
+                HandleLobbyConfigurationChanged;
         }
 
         if (playerCountDropdown != null)
@@ -139,6 +156,7 @@ public class LobbyUI : MonoBehaviour
     }
     private void HandleSessionChanged()
     {
+        ApplyAuthoritativeConfigurationToUI();
         RefreshLobbyUI();
     }
 
@@ -148,11 +166,13 @@ public class LobbyUI : MonoBehaviour
 
     private void HandlePlayerCountChanged(int ignoredValue)
     {
-        // First rebuild the valid team choices.
+        if (applyingNetworkConfiguration)
+            return;
+
+        // Player count determines which team counts are valid.
         UpdateValidTeamOptions();
 
-        // Then rebuild the lobby.
-        ConfigureLobbyFromDropdowns();
+        RequestLobbyConfigurationFromDropdowns();
     }
 
     // =========================================================
@@ -161,14 +181,18 @@ public class LobbyUI : MonoBehaviour
 
     private void HandleTeamCountChanged(int ignoredValue)
     {
-        ConfigureLobbyFromDropdowns();
+        if (applyingNetworkConfiguration)
+            return;
+
+        RequestLobbyConfigurationFromDropdowns();
     }
 
     // =========================================================
     // VALID TEAM OPTIONS
     // =========================================================
 
-    private void UpdateValidTeamOptions()
+    private void UpdateValidTeamOptions(
+        int preferredTeamCount = -1)
     {
         if (playerCountDropdown == null ||
             teamCountDropdown == null)
@@ -179,10 +203,12 @@ public class LobbyUI : MonoBehaviour
         int playerCount =
             GetSelectedPlayerCount();
 
-        // Remember the currently selected team count
-        // if possible.
+        // Preserve the current team choice unless the caller
+        // supplied the authoritative server choice.
         int previousTeamCount =
-            GetSelectedTeamCount();
+            preferredTeamCount > 0
+                ? preferredTeamCount
+                : GetSelectedTeamCount();
 
         List<int> validTeamCounts =
             new List<int>();
@@ -233,13 +259,22 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================
-    // CONFIGURE LOBBY
+    // REQUEST LOBBY CONFIGURATION
     // =========================================================
 
-    private void ConfigureLobbyFromDropdowns()
+    private void RequestLobbyConfigurationFromDropdowns()
     {
-        if (lobbyManager == null)
+        if (networkLobbyBridge == null ||
+            !networkLobbyBridge.IsSpawned)
+        {
+            SetLobbyMessage(
+                "Lobby networking is not ready."
+            );
+
+            ApplyAuthoritativeConfigurationToUI();
+
             return;
+        }
 
         int playerCount =
             GetSelectedPlayerCount();
@@ -247,32 +282,156 @@ public class LobbyUI : MonoBehaviour
         int teamCount =
             GetSelectedTeamCount();
 
-        bool success =
-            lobbyManager.ConfigureLobby(
-                playerCount,
-                teamCount
-            );
+        networkLobbyBridge.RequestLobbyConfiguration(
+            playerCount,
+            teamCount,
+            HandleLobbyConfigurationRequestCompleted
+        );
+    }
 
-        if (!success)
+    private void HandleLobbyConfigurationRequestCompleted(
+        AuthorityResult result)
+    {
+        if (result == null)
         {
             SetLobbyMessage(
-                "Invalid player/team combination."
+                "Lobby settings request returned no result."
             );
 
-            ClearPlayerRows();
+            ApplyAuthoritativeConfigurationToUI();
 
             return;
         }
 
-        CreateLocalLobbyPlayers();
+        if (!result.Success)
+        {
+            Debug.LogWarning(
+                $"Lobby settings rejected: " +
+                $"{result.Code} - {result.Message}"
+            );
+
+            // Restore whatever the SERVER currently says.
+            ApplyAuthoritativeConfigurationToUI();
+
+            SetLobbyMessage(
+                result.Message
+            );
+
+            return;
+        }
+
+        SetLobbyMessage(
+            result.Message
+        );
+    }
+
+    // =========================================================
+    // AUTHORITATIVE LOBBY CONFIGURATION RECEIVED
+    // =========================================================
+
+    private void HandleLobbyConfigurationChanged(
+        int playerCount,
+        int teamCount)
+    {
+        ApplyLobbyConfigurationToUI(
+            playerCount,
+            teamCount
+        );
+    }
+
+    private void ApplyAuthoritativeConfigurationToUI()
+    {
+        int playerCount =
+            networkLobbyBridge != null
+                ? networkLobbyBridge.LobbyPlayerCount
+                : (lobbyManager != null
+                    ? lobbyManager.PlayerCount
+                    : 2);
+
+        int teamCount =
+            networkLobbyBridge != null
+                ? networkLobbyBridge.LobbyTeamCount
+                : (lobbyManager != null
+                    ? lobbyManager.TeamCount
+                    : 2);
+
+        ApplyLobbyConfigurationToUI(
+            playerCount,
+            teamCount
+        );
+    }
+
+    private void ApplyLobbyConfigurationToUI(
+        int playerCount,
+        int teamCount)
+    {
+        applyingNetworkConfiguration =
+            true;
+
+        SetPlayerCountDropdownWithoutNotify(
+            playerCount
+        );
+
+        UpdateValidTeamOptions(
+            teamCount
+        );
+
+        applyingNetworkConfiguration =
+            false;
 
         ApplyPlayerGridLayout(
             playerCount
         );
 
+        // NetworkLobbyBridge configures LobbyManager before
+        // firing OnLobbyConfigurationChanged. Rebuild the rows
+        // now so every client shows the same number of slots.
         RebuildPlayerRows();
 
         RefreshLobbyUI();
+    }
+
+    private void SetPlayerCountDropdownWithoutNotify(
+        int playerCount)
+    {
+        if (playerCountDropdown == null)
+            return;
+
+        for (int i = 0;
+             i < playerCountDropdown.options.Count;
+             i++)
+        {
+            string optionText =
+                playerCountDropdown.options[i]
+                    .text
+                    .Trim();
+
+            if (!int.TryParse(
+                    optionText,
+                    out int optionPlayerCount))
+            {
+                continue;
+            }
+
+            if (optionPlayerCount !=
+                playerCount)
+            {
+                continue;
+            }
+
+            playerCountDropdown.SetValueWithoutNotify(
+                i
+            );
+
+            playerCountDropdown.RefreshShownValue();
+
+            return;
+        }
+
+        Debug.LogWarning(
+            $"LobbyUI has no Player Count dropdown " +
+            $"option for {playerCount}."
+        );
     }
 
     // =========================================================
@@ -334,26 +493,6 @@ public class LobbyUI : MonoBehaviour
                 cellWidth,
                 65f
             );
-    }
-
-    // =========================================================
-    // LOCAL TEST PLAYERS
-    // =========================================================
-
-    private void CreateLocalLobbyPlayers()
-    {
-        if (lobbyManager == null)
-            return;
-
-        for (int playerId = 1;
-             playerId <= lobbyManager.PlayerCount;
-             playerId++)
-        {
-            lobbyManager.JoinPlayer(
-                playerId,
-                $"Player {playerId}"
-            );
-        }
     }
 
     // =========================================================

@@ -96,7 +96,20 @@ public class RoomEntryUI : MonoBehaviour
 
     private void Awake()
     {
+        if (networkBootstrap != null)
+        {
+            networkBootstrap.OnLocalClientDisconnected +=
+                HandleLocalClientDisconnected;
+        }
         ShowRoomEntry();
+    }
+    private void OnDestroy()
+    {
+        if (networkBootstrap != null)
+        {
+            networkBootstrap.OnLocalClientDisconnected -=
+                HandleLocalClientDisconnected;
+        }
     }
 
     private void OnEnable()
@@ -115,11 +128,11 @@ public class RoomEntryUI : MonoBehaviour
             );
         }
 
-        if (networkBootstrap != null)
-        {
-            networkBootstrap.OnLocalClientDisconnected +=
-                HandleLocalClientDisconnected;
-        }
+        // if (networkBootstrap != null)
+        // {
+        //     networkBootstrap.OnLocalClientDisconnected +=
+        //         HandleLocalClientDisconnected;
+        // }
     }
 
     private void OnDisable()
@@ -138,11 +151,11 @@ public class RoomEntryUI : MonoBehaviour
             );
         }
 
-        if (networkBootstrap != null)
-        {
-            networkBootstrap.OnLocalClientDisconnected -=
-                HandleLocalClientDisconnected;
-        }
+        // if (networkBootstrap != null)
+        // {
+        //     networkBootstrap.OnLocalClientDisconnected -=
+        //         HandleLocalClientDisconnected;
+        // }
     }
 
     // =========================================================
@@ -557,17 +570,28 @@ public class RoomEntryUI : MonoBehaviour
             roomSessionContext.RoomCode;
 
         Debug.LogWarning(
-            $"Connection lost for Player " +
+            $"Connection to host lost for Player " +
             $"{roomSessionContext.LocalPlayerId}. " +
-            $"Room {previousRoomCode} remains available for rejoin."
+            $"Room {previousRoomCode} remains available for a rejoin attempt."
         );
 
         // IMPORTANT:
-        // Do NOT ClearSession().
-        // Do NOT delete the rejoin token.
         //
-        // The server should continue holding the
-        // authoritative Player object and hand.
+        // From a remote client, an NGO disconnect means the
+        // connection to the host/server was lost.
+        //
+        // We intentionally keep:
+        //
+        // - the room code
+        // - the persistent rejoin token
+        // - the local PlayerId/session information
+        //
+        // so the player can attempt to reconnect if the host
+        // is still running.
+        //
+        // If the host application actually closed/crashed,
+        // there is no server left to restore the match, so
+        // the next Join attempt will fail normally.
         if (roomEntryPanel != null)
             roomEntryPanel.SetActive(true);
 
@@ -592,8 +616,9 @@ public class RoomEntryUI : MonoBehaviour
         }
 
         SetMessage(
-            "Connection lost. " +
-            "Press Join to rejoin the same room."
+            "Connection to host lost. " +
+            "Try Join to reconnect. " +
+            "If the host closed the game, this match has ended."
         );
     }
 

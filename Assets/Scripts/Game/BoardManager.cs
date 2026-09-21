@@ -1488,98 +1488,22 @@ public class BoardManager : MonoBehaviour
         if (board == null)
             return;
 
-        if (teamId <= 0)
+        if (teamId < 1 ||
+            teamId > 3)
+        {
+            Debug.LogWarning(
+                $"DEBUG: Unsupported Team {teamId}."
+            );
+
             return;
+        }
 
         int currentSequenceCount =
-            GetSequenceCount(teamId);
+            GetSequenceCount(
+                teamId
+            );
 
-        int[,] positions;
-        int lastRow;
-        int lastColumn;
-
-        // =========================================================
-        // SEQUENCE 1
-        //
-        // Top-left corner:
-        //
-        // [0,0] = free corner
-        // [0,1]
-        // [0,2]
-        // [0,3]
-        // [0,4]
-        // =========================================================
-
-        if (currentSequenceCount == 0)
-        {
-            positions = new int[,]
-            {
-                { 0, 1 },
-                { 0, 2 },
-                { 0, 3 },
-                { 0, 4 }
-            };
-
-            lastRow = 0;
-            lastColumn = 4;
-        }
-
-        // =========================================================
-        // SEQUENCE 2
-        //
-        // Same top-left corner vertically:
-        //
-        // [0,0] = free corner
-        // [1,0]
-        // [2,0]
-        // [3,0]
-        // [4,0]
-        // =========================================================
-
-        else if (currentSequenceCount == 1)
-        {
-            positions = new int[,]
-            {
-                { 1, 0 },
-                { 2, 0 },
-                { 3, 0 },
-                { 4, 0 }
-            };
-
-            lastRow = 4;
-            lastColumn = 0;
-        }
-
-        // =========================================================
-        // SEQUENCE 3
-        //
-        // Bottom-left corner:
-        //
-        // [9,0] = free corner
-        // [9,1]
-        // [9,2]
-        // [9,3]
-        // [9,4]
-        //
-        // This is separate from the first two Sequences.
-        // =========================================================
-
-        else if (currentSequenceCount == 2)
-        {
-            positions = new int[,]
-            {
-                { 9, 1 },
-                { 9, 2 },
-                { 9, 3 },
-                { 9, 4 }
-            };
-
-            lastRow = 9;
-            lastColumn = 4;
-        }
-
-        // Already created all three debug Sequences.
-        else
+        if (currentSequenceCount >= 3)
         {
             Debug.Log(
                 $"DEBUG: Team {teamId} already has " +
@@ -1589,66 +1513,102 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        // =========================================================
-        // VALIDATE CELLS FIRST
-        // =========================================================
+        // -----------------------------------------------------
+        // TEAM-SPECIFIC DEBUG LANES
+        //
+        // Each team gets three separate horizontal rows so
+        // Team 1 / Team 2 / Team 3 never fight over the same
+        // debug cells.
+        //
+        // Team 1:
+        //   Sequence 1 -> row 1, columns 1..5
+        //   Sequence 2 -> row 2, columns 1..5
+        //   Sequence 3 -> row 3, columns 1..5
+        //
+        // Team 2:
+        //   Sequence 1 -> row 4, columns 1..5
+        //   Sequence 2 -> row 5, columns 1..5
+        //   Sequence 3 -> row 6, columns 1..5
+        //
+        // Team 3:
+        //   Sequence 1 -> row 7, columns 1..5
+        //   Sequence 2 -> row 8, columns 1..5
+        //   Sequence 3 -> row 9, columns 1..5
+        //
+        // None of these cells are corners.
+        // -----------------------------------------------------
 
-        for (int i = 0;
-            i < positions.GetLength(0);
-            i++)
+        int baseRow =
+            1 +
+            ((teamId - 1) * 3);
+
+        int targetRow =
+            baseRow +
+            currentSequenceCount;
+
+        const int startColumn = 1;
+        const int endColumn = 5;
+
+        // -----------------------------------------------------
+        // VALIDATE ALL FIVE CELLS FIRST
+        // -----------------------------------------------------
+
+        for (int column = startColumn;
+             column <= endColumn;
+             column++)
         {
-            int row =
-                positions[i, 0];
-
-            int column =
-                positions[i, 1];
-
             BoardCell cell =
                 board.GetCell(
-                    row,
+                    targetRow,
                     column
                 );
 
             if (cell == null)
             {
                 Debug.LogWarning(
-                    $"DEBUG: Missing cell [{row},{column}]."
+                    $"DEBUG: Missing cell " +
+                    $"[{targetRow},{column}]."
                 );
 
                 return;
             }
 
-            // Don't overwrite another team's chip.
+            if (cell.IsCorner)
+            {
+                Debug.LogWarning(
+                    $"DEBUG: Unexpected corner at " +
+                    $"[{targetRow},{column}]."
+                );
+
+                return;
+            }
+
+            // Never overwrite another team's chip.
             if (cell.IsOccupied &&
                 cell.OwnerTeamId != teamId)
             {
                 Debug.LogWarning(
-                    $"DEBUG: Cannot create Sequence because " +
-                    $"[{row},{column}] belongs to Team " +
-                    $"{cell.OwnerTeamId}."
+                    $"DEBUG: Cannot create Team {teamId} " +
+                    $"Sequence {currentSequenceCount + 1}. " +
+                    $"Cell [{targetRow},{column}] belongs " +
+                    $"to Team {cell.OwnerTeamId}."
                 );
 
                 return;
             }
         }
 
-        // =========================================================
-        // PLACE DEBUG TEAM CHIPS
-        // =========================================================
+        // -----------------------------------------------------
+        // PLACE THE FIVE DEBUG CHIPS
+        // -----------------------------------------------------
 
-        for (int i = 0;
-            i < positions.GetLength(0);
-            i++)
+        for (int column = startColumn;
+             column <= endColumn;
+             column++)
         {
-            int row =
-                positions[i, 0];
-
-            int column =
-                positions[i, 1];
-
             BoardCell cell =
                 board.GetCell(
-                    row,
+                    targetRow,
                     column
                 );
 
@@ -1658,7 +1618,7 @@ public class BoardManager : MonoBehaviour
 
             BoardCellView view =
                 cellViews[
-                    row,
+                    targetRow,
                     column
                 ];
 
@@ -1666,19 +1626,26 @@ public class BoardManager : MonoBehaviour
             {
                 view.UpdateVisual();
             }
+
+            // Publish the changed owner state immediately.
+            OnBoardCellChanged?.Invoke(
+                cell
+            );
         }
 
-        // =========================================================
-        // REGISTER
-        // =========================================================
+        // -----------------------------------------------------
+        // REGISTER THE NEW SEQUENCE
+        //
+        // The last cell is part of the newly-created line, so
+        // the normal Sequence detector can discover/register it.
+        // -----------------------------------------------------
 
         BoardCell lastCell =
             board.GetCell(
-                lastRow,
-                lastColumn
+                targetRow,
+                endColumn
             );
 
-        // Count before registration.
         int created =
             RegisterNewSequences(
                 teamId,
@@ -1690,12 +1657,15 @@ public class BoardManager : MonoBehaviour
                 teamId
             );
 
-        Debug.Log(
-            $"DEBUG: Created {created} new Sequence(s) " +
-            $"for Team {teamId}. Total = {total}."
+        Debug.LogWarning(
+            $"DEBUG F1: Team {teamId} sequence lane " +
+            $"{currentSequenceCount + 1} -> " +
+            $"row {targetRow}. " +
+            $"Created={created}, Total={total}."
         );
     }
     #endif
+
     private void DebugSetCellForTeam(
         int row,
         int column,

@@ -68,45 +68,30 @@ public class LobbyManager : MonoBehaviour
 
     // =========================================================
     // RESET / CONFIGURE LOBBY
+    //
+    // Existing player rows/seats are preserved whenever they
+    // still fit inside the new configuration.
     // =========================================================
 
     public bool ConfigureLobby(
         int newPlayerCount,
         int newTeamCount)
     {
-        if (!IsSupportedPlayerCount(
-                newPlayerCount))
+        if (!IsValidLobbyConfiguration(
+                newPlayerCount,
+                newTeamCount,
+                out string errorMessage))
         {
             Debug.LogError(
-                $"Unsupported lobby player count: " +
-                $"{newPlayerCount}"
+                errorMessage
             );
 
             return false;
         }
 
-        if (newTeamCount != 2 &&
-            newTeamCount != 3)
-        {
-            Debug.LogError(
-                $"Unsupported team count: " +
-                $"{newTeamCount}"
-            );
-
-            return false;
-        }
-
-        if (newPlayerCount %
-            newTeamCount != 0)
-        {
-            Debug.LogError(
-                $"{newPlayerCount} players cannot be " +
-                $"divided evenly into " +
-                $"{newTeamCount} teams."
-            );
-
-            return false;
-        }
+        bool configurationChanged =
+            newPlayerCount != playerCount ||
+            newTeamCount != teamCount;
 
         playerCount =
             newPlayerCount;
@@ -114,7 +99,72 @@ public class LobbyManager : MonoBehaviour
         teamCount =
             newTeamCount;
 
-        players.Clear();
+        // Remove rows that no longer fit the configured count.
+        // NetworkLobbyBridge rejects a shrink if a real
+        // connected/reserved player would be removed.
+        for (int i = players.Count - 1;
+             i >= 0;
+             i--)
+        {
+            if (players[i].PlayerId >
+                playerCount)
+            {
+                players.RemoveAt(i);
+            }
+        }
+
+        // Ensure one lobby row exists for every configured
+        // PlayerId so all clients render the same slots.
+        for (int playerId = 1;
+             playerId <= playerCount;
+             playerId++)
+        {
+            if (GetPlayer(playerId) != null)
+                continue;
+
+            players.Add(
+                new LobbyPlayerData(
+                    playerId,
+                    $"Player {playerId}"
+                )
+            );
+        }
+
+        players.Sort(
+            (a, b) =>
+                a.PlayerId.CompareTo(
+                    b.PlayerId
+                )
+        );
+
+        // A real configuration change keeps valid seats,
+        // recalculates team assignment from seat, and resets
+        // Ready state because AssignSeat() resets Ready.
+        if (configurationChanged)
+        {
+            foreach (LobbyPlayerData player
+                     in players)
+            {
+                if (!player.HasSeat)
+                    continue;
+
+                int existingSeat =
+                    player.SeatIndex;
+
+                if (existingSeat >
+                    playerCount)
+                {
+                    player.ClearSeat();
+
+                    continue;
+                }
+
+                player.AssignSeat(
+                    existingSeat,
+                    teamCount
+                );
+            }
+        }
 
         Debug.Log(
             $"Lobby configured for " +
@@ -123,6 +173,51 @@ public class LobbyManager : MonoBehaviour
         );
 
         NotifyLobbyChanged();
+
+        return true;
+    }
+
+    // =========================================================
+    // VALIDATE LOBBY CONFIGURATION
+    // =========================================================
+
+    public bool IsValidLobbyConfiguration(
+        int newPlayerCount,
+        int newTeamCount,
+        out string errorMessage)
+    {
+        errorMessage = "";
+
+        if (!IsSupportedPlayerCount(
+                newPlayerCount))
+        {
+            errorMessage =
+                $"Unsupported lobby player count: " +
+                $"{newPlayerCount}.";
+
+            return false;
+        }
+
+        if (newTeamCount != 2 &&
+            newTeamCount != 3)
+        {
+            errorMessage =
+                $"Unsupported team count: " +
+                $"{newTeamCount}.";
+
+            return false;
+        }
+
+        if (newPlayerCount %
+            newTeamCount != 0)
+        {
+            errorMessage =
+                $"{newPlayerCount} players cannot be " +
+                $"divided evenly into " +
+                $"{newTeamCount} teams.";
+
+            return false;
+        }
 
         return true;
     }
@@ -415,7 +510,8 @@ public class LobbyManager : MonoBehaviour
         foreach (LobbyPlayerData player
                  in players)
         {
-            if (!player.HasSeat ||
+            if (!player.IsConnected ||
+                !player.HasSeat ||
                 !player.HasTeam ||
                 !player.IsReady)
             {
@@ -460,6 +556,19 @@ public class LobbyManager : MonoBehaviour
         foreach (LobbyPlayerData player
                  in players)
         {
+            // A configured player must currently be connected.
+            // We intentionally keep their seat/team/Ready state
+            // during a temporary disconnect so a rejoin can
+            // restore the same lobby identity cleanly.
+            if (!player.IsConnected)
+            {
+                errorMessage =
+                    $"{player.DisplayName} is disconnected. " +
+                    "Waiting for them to reconnect.";
+
+                return false;
+            }
+
             if (!player.HasSeat)
             {
                 errorMessage =

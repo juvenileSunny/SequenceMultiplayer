@@ -33,6 +33,41 @@ public class NetworkLobbyBridge : NetworkBehaviour
     // Game HUD and other public UI can refresh from this.
     public event Action OnPublicPlayerStateChanged;
 
+    // Public lobby configuration changed.
+    // Any player may REQUEST a change while still in the lobby,
+    // but the server is the source of truth and broadcasts the
+    // accepted player/team counts to everybody.
+    public event Action<int, int> OnLobbyConfigurationChanged;
+
+    private int publicLobbyPlayerCount = -1;
+    private int publicLobbyTeamCount = -1;
+
+    public int LobbyPlayerCount
+    {
+        get
+        {
+            if (publicLobbyPlayerCount > 0)
+                return publicLobbyPlayerCount;
+
+            return lobbyManager != null
+                ? lobbyManager.PlayerCount
+                : 2;
+        }
+    }
+
+    public int LobbyTeamCount
+    {
+        get
+        {
+            if (publicLobbyTeamCount > 0)
+                return publicLobbyTeamCount;
+
+            return lobbyManager != null
+                ? lobbyManager.TeamCount
+                : 2;
+        }
+    }
+
     // PlayerId -> public display name.
     private readonly Dictionary<int, string>
         playerDisplayNames =
@@ -93,6 +128,11 @@ public class NetworkLobbyBridge : NetworkBehaviour
     private readonly Dictionary<int, Action<AuthorityResult>>
         pendingReadyRequests =
             new Dictionary<int, Action<AuthorityResult>>();
+
+    private readonly Dictionary<int, Action<AuthorityResult>>
+        pendingLobbyConfigurationRequests =
+            new Dictionary<int, Action<AuthorityResult>>();
+
     private readonly Dictionary<int, Action<AuthorityResult>>
         pendingStartMatchRequests =
             new Dictionary<int, Action<AuthorityResult>>();
@@ -177,6 +217,22 @@ public class NetworkLobbyBridge : NetworkBehaviour
             {
                 playerDisplayNames[1] =
                     "Player 1";
+            }
+
+            if (lobbyManager != null)
+            {
+                // Ensure the authoritative server lobby already
+                // contains the configured player rows.
+                lobbyManager.ConfigureLobby(
+                    lobbyManager.PlayerCount,
+                    lobbyManager.TeamCount
+                );
+
+                publicLobbyPlayerCount =
+                    lobbyManager.PlayerCount;
+
+                publicLobbyTeamCount =
+                    lobbyManager.TeamCount;
             }
 
             NetworkManager.OnClientConnectedCallback +=
@@ -745,6 +801,359 @@ public class NetworkLobbyBridge : NetworkBehaviour
     }
 
     // =========================================================
+    // PUBLIC LOBBY CONFIGURATION REQUEST
+    //
+    // Any registered player may request a different player/team
+    // count while the match is still in the lobby.
+    //
+    // SERVER:
+    // validates -> applies -> broadcasts
+    //
+    // CLIENTS:
+    // display the server-approved values
+    // =========================================================
+
+    public void RequestLobbyConfiguration(
+        int requestedPlayerCount,
+        int requestedTeamCount,
+        Action<AuthorityResult> onCompleted)
+    {
+        if (!IsSpawned)
+        {
+            onCompleted?.Invoke(
+                AuthorityResult.Rejected(
+                    AuthorityResultCode.LobbyNotAvailable,
+                    "Network lobby bridge is not ready."
+                )
+            );
+
+            return;
+        }
+
+        if (IsServer)
+        {
+            AuthorityResult result =
+                ApplyLobbyConfigurationOnServer(
+                    1,
+                    requestedPlayerCount,
+                    requestedTeamCount
+                );
+
+            onCompleted?.Invoke(
+                result
+            );
+
+            return;
+        }
+
+        int requestId =
+            nextRequestId++;
+
+        pendingLobbyConfigurationRequests[
+            requestId
+        ] = onCompleted;
+
+        RequestLobbyConfigurationServerRpc(
+            requestId,
+            requestedPlayerCount,
+            requestedTeamCount
+        );
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void RequestLobbyConfigurationServerRpc(
+        int requestId,
+        int requestedPlayerCount,
+        int requestedTeamCount,
+        ServerRpcParams rpcParams = default)
+    {
+        ulong senderClientId =
+            rpcParams.Receive.SenderClientId;
+
+        if (!TryGetPlayerIdForClient(
+                senderClientId,
+                out int playerId))
+        {
+            SendLobbyConfigurationResult(
+                senderClientId,
+                requestId,
+                AuthorityResult.Rejected(
+                    AuthorityResultCode.InvalidPlayer,
+                    "No player is assigned to this connection."
+                )
+            );
+
+            return;
+        }
+
+        AuthorityResult result =
+            ApplyLobbyConfigurationOnServer(
+                playerId,
+                requestedPlayerCount,
+                requestedTeamCount
+            );
+
+        Debug.Log(
+            $"NETWORK lobby-config request: " +
+            $"ClientId={senderClientId}, " +
+            $"Player={playerId}, " +
+            $"Players={requestedPlayerCount}, " +
+            $"Teams={requestedTeamCount}, " +
+            $"Accepted={result.Success}"
+        );
+
+        SendLobbyConfigurationResult(
+            senderClientId,
+            requestId,
+            result
+        );
+    }
+
+    private AuthorityResult ApplyLobbyConfigurationOnServer(
+        int requestingPlayerId,
+        int requestedPlayerCount,
+        int requestedTeamCount)
+    {
+        if (!IsServer ||
+            lobbyManager == null)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.LobbyNotAvailable,
+                "Lobby authority is unavailable."
+            );
+        }
+
+        if (matchStarted)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.LobbyNotAvailable,
+                "Lobby settings cannot change after the match has started."
+            );
+        }
+
+        if (!lobbyManager.IsValidLobbyConfiguration(
+                requestedPlayerCount,
+                requestedTeamCount,
+                out string validationMessage))
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.LobbyNotAvailable,
+                validationMessage
+            );
+        }
+
+        // -----------------------------------------------------
+        // Do not shrink the lobby in a way that removes an
+        // actual connected or reserved/rejoin player.
+        // -----------------------------------------------------
+
+        foreach (
+            KeyValuePair<ulong, int> pair
+            in clientToPlayerId)
+        {
+            if (pair.Value >
+                requestedPlayerCount)
+            {
+                return AuthorityResult.Rejected(
+                    AuthorityResultCode.LobbyNotAvailable,
+                    $"Cannot reduce the lobby to " +
+                    $"{requestedPlayerCount} players while " +
+                    $"Player {pair.Value} is connected."
+                );
+            }
+        }
+
+        foreach (int reservedPlayerId
+                 in playerIdToRejoinToken.Keys)
+        {
+            if (reservedPlayerId >
+                requestedPlayerCount)
+            {
+                return AuthorityResult.Rejected(
+                    AuthorityResultCode.LobbyNotAvailable,
+                    $"Cannot reduce the lobby to " +
+                    $"{requestedPlayerCount} players because " +
+                    $"Player {reservedPlayerId} is reserved " +
+                    $"for rejoin."
+                );
+            }
+        }
+
+        // Never silently delete an occupied seat.
+        foreach (LobbyPlayerData player
+                 in lobbyManager.Players)
+        {
+            if (player.HasSeat &&
+                player.SeatIndex >
+                    requestedPlayerCount)
+            {
+                return AuthorityResult.Rejected(
+                    AuthorityResultCode.LobbyNotAvailable,
+                    $"Seat {player.SeatIndex} is occupied. " +
+                    $"Choose a player count that keeps all " +
+                    $"occupied seats."
+                );
+            }
+        }
+
+        bool success =
+            lobbyManager.ConfigureLobby(
+                requestedPlayerCount,
+                requestedTeamCount
+            );
+
+        if (!success)
+        {
+            return AuthorityResult.Rejected(
+                AuthorityResultCode.LobbyNotAvailable,
+                "The requested lobby configuration is invalid."
+            );
+        }
+
+        publicLobbyPlayerCount =
+            lobbyManager.PlayerCount;
+
+        publicLobbyTeamCount =
+            lobbyManager.TeamCount;
+
+        // First everybody receives the accepted configuration,
+        // then everybody receives the current player/seat state.
+        BroadcastLobbyConfiguration();
+        BroadcastLobbyState();
+
+        Debug.LogWarning(
+            $"LOBBY CONFIG UPDATED by Player " +
+            $"{requestingPlayerId}: " +
+            $"{publicLobbyPlayerCount} players, " +
+            $"{publicLobbyTeamCount} teams."
+        );
+
+        return AuthorityResult.Accepted(
+            $"Lobby changed to " +
+            $"{publicLobbyPlayerCount} players / " +
+            $"{publicLobbyTeamCount} teams."
+        );
+    }
+
+    private void BroadcastLobbyConfiguration()
+    {
+        if (!IsServer ||
+            lobbyManager == null)
+        {
+            return;
+        }
+
+        publicLobbyPlayerCount =
+            lobbyManager.PlayerCount;
+
+        publicLobbyTeamCount =
+            lobbyManager.TeamCount;
+
+        SyncLobbyConfigurationClientRpc(
+            publicLobbyPlayerCount,
+            publicLobbyTeamCount
+        );
+
+        OnLobbyConfigurationChanged?.Invoke(
+            publicLobbyPlayerCount,
+            publicLobbyTeamCount
+        );
+    }
+
+    [ClientRpc]
+    private void SyncLobbyConfigurationClientRpc(
+        int playerCount,
+        int teamCount)
+    {
+        // The host/server already applied the authoritative
+        // configuration and BroadcastLobbyConfiguration()
+        // refreshes its local UI directly.
+        if (IsServer)
+            return;
+
+        publicLobbyPlayerCount =
+            playerCount;
+
+        publicLobbyTeamCount =
+            teamCount;
+
+        if (lobbyManager != null)
+        {
+            lobbyManager.ConfigureLobby(
+                playerCount,
+                teamCount
+            );
+        }
+
+        Debug.Log(
+            $"SYNC lobby configuration: " +
+            $"Players={playerCount}, " +
+            $"Teams={teamCount}"
+        );
+
+        OnLobbyConfigurationChanged?.Invoke(
+            playerCount,
+            teamCount
+        );
+    }
+
+    private void SendLobbyConfigurationResult(
+        ulong targetClientId,
+        int requestId,
+        AuthorityResult result)
+    {
+        ClientRpcParams target =
+            CreateTargetClientRpcParams(
+                targetClientId
+            );
+
+        LobbyConfigurationResultClientRpc(
+            requestId,
+            result.Success,
+            (int)result.Code,
+            result.Message,
+            target
+        );
+    }
+
+    [ClientRpc]
+    private void LobbyConfigurationResultClientRpc(
+        int requestId,
+        bool success,
+        int resultCode,
+        string message,
+        ClientRpcParams clientRpcParams = default)
+    {
+        if (IsServer)
+            return;
+
+        if (!pendingLobbyConfigurationRequests.TryGetValue(
+                requestId,
+                out Action<AuthorityResult> callback))
+        {
+            return;
+        }
+
+        pendingLobbyConfigurationRequests.Remove(
+            requestId
+        );
+
+        AuthorityResult result =
+            success
+                ? AuthorityResult.Accepted(
+                    message
+                )
+                : AuthorityResult.Rejected(
+                    (AuthorityResultCode)resultCode,
+                    message
+                );
+
+        callback?.Invoke(
+            result
+        );
+    }
+
+    // =========================================================
     // SYNCHRONIZE PUBLIC LOBBY STATE
     // =========================================================
 
@@ -1277,6 +1686,7 @@ private void RequestSessionRegistrationServerRpc(
             existingClientPlayerId
         ] = true;
 
+        BroadcastLobbyConfiguration();
         BroadcastLobbyState();
 
         SendSessionRegistrationResult(
@@ -1396,6 +1806,7 @@ private void RequestSessionRegistrationServerRpc(
         normalizedDisplayName
     );
 
+    BroadcastLobbyConfiguration();
     BroadcastLobbyState();
 
     Debug.LogWarning(
